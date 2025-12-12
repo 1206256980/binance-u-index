@@ -42,27 +42,17 @@ public class IndexCalculatorService {
             return null;
         }
 
-        // 如果没有基准价格或基准价格过期，重新获取
-        if (basePrices.isEmpty() || basePriceTime == null || 
-            ChronoUnit.HOURS.between(basePriceTime, LocalDateTime.now()) > 24) {
-            refreshBasePrices();
-        }
-
         // 计算加权平均涨跌幅
+        // 直接使用币安API返回的24h涨跌幅，不需要自己计算基准价格
         double totalWeightedChange = 0;
         double totalVolume = 0;
         int validCount = 0;
 
         for (TickerData ticker : tickers) {
-            Double basePrice = basePrices.get(ticker.getSymbol());
-            if (basePrice == null || basePrice <= 0) {
-                continue;
-            }
-
-            double changePercent = (ticker.getLastPrice() - basePrice) / basePrice * 100;
+            double changePercent = ticker.getPriceChangePercent();
             double volume = ticker.getQuoteVolume();
 
-            // 过滤异常值
+            // 过滤异常值：涨跌幅超过200%的可能是异常数据，交易量为0的跳过
             if (Math.abs(changePercent) > 200 || volume <= 0) {
                 continue;
             }
@@ -92,7 +82,7 @@ public class IndexCalculatorService {
         MarketIndex index = new MarketIndex(alignedTime, indexValue, totalVolume, validCount);
         marketIndexRepository.save(index);
 
-        log.info("保存指数: 时间={}, 值={:.4f}%, 币种数={}", alignedTime, indexValue, validCount);
+        log.info("保存指数: 时间={}, 值={}%, 币种数={}", alignedTime, String.format("%.4f", indexValue), validCount);
         return index;
     }
 
