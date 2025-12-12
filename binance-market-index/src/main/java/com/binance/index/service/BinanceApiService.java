@@ -55,31 +55,33 @@ public class BinanceApiService {
     }
 
     /**
-     * 获取所有U本位合约交易对（排除配置的币种）
+     * 获取所有U本位合约交易对（从ticker/24hr接口获取，过滤USDT并排除配置的币种）
      */
     public List<String> getAllUsdtSymbols() {
         List<String> symbols = new ArrayList<>();
         try {
-            String url = baseUrl + "/fapi/v1/exchangeInfo";
+            String url = baseUrl + "/fapi/v1/ticker/24hr";
             Request request = new Request.Builder().url(url).get().build();
 
             try (Response response = httpClient.newCall(request).execute()) {
                 if (response.isSuccessful() && response.body() != null) {
                     JsonNode root = objectMapper.readTree(response.body().string());
-                    JsonNode symbolsNode = root.get("symbols");
 
-                    if (symbolsNode != null && symbolsNode.isArray()) {
-                        for (JsonNode symbolNode : symbolsNode) {
-                            String symbol = symbolNode.get("symbol").asText();
-                            String status = symbolNode.get("status").asText();
-                            String marginAsset = symbolNode.get("marginAsset").asText();
+                    if (root.isArray()) {
+                        for (JsonNode tickerNode : root) {
+                            String symbol = tickerNode.get("symbol").asText();
 
-                            // 只要USDT保证金的、交易中的合约，且不在排除列表中
-                            if ("TRADING".equals(status) 
-                                    && "USDT".equals(marginAsset)
-                                    && !getExcludeSymbols().contains(symbol)) {
-                                symbols.add(symbol);
+                            // 只保留USDT交易对
+                            if (!symbol.endsWith("USDT")) {
+                                continue;
                             }
+
+                            // 跳过排除的币种
+                            if (getExcludeSymbols().contains(symbol)) {
+                                continue;
+                            }
+
+                            symbols.add(symbol);
                         }
                     }
                 }
@@ -107,6 +109,11 @@ public class BinanceApiService {
                     if (root.isArray()) {
                         for (JsonNode tickerNode : root) {
                             String symbol = tickerNode.get("symbol").asText();
+                            
+                            // 只保留USDT交易对
+                            if (!symbol.endsWith("USDT")) {
+                                continue;
+                            }
                             
                             // 跳过排除的币种
                             if (getExcludeSymbols().contains(symbol)) {
