@@ -63,16 +63,6 @@ public class DataCollectorScheduler {
         }
     }
 
-    /**
-     * 每天凌晨3点刷新基准价格
-     */
-    @Scheduled(cron = "0 0 3 * * *")
-    public void refreshBasePrices() {
-        log.info("开始刷新基准价格...");
-        try {
-            indexCalculatorService.refreshBasePrices();
-        } catch (Exception e) {
-            log.error("刷新基准价格失败: {}", e.getMessage(), e);
-        }
-    }
+    // 基准价格永不自动刷新，仅在首次启动时通过回补历史数据设定
+    // 如需更改回补天数，修改配置 index.backfill.days (默认3天)
 }

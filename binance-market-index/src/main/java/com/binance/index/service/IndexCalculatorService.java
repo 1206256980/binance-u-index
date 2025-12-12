@@ -34,40 +34,56 @@ public class IndexCalculatorService {
 
     /**
      * 计算并保存当前时刻的市场指数（实时采集用）
+     * 使用3天前的固定基准价格计算涨跌幅
      */
     public MarketIndex calculateAndSaveCurrentIndex() {
+        // 如果没有基准价格，需要先刷新
+        if (basePrices.isEmpty()) {
+            log.warn("基准价格为空，等待回补完成或手动刷新");
+            return null;
+        }
+
         List<TickerData> tickers = binanceApiService.getAll24hTickers();
         if (tickers.isEmpty()) {
             log.warn("无法获取行情数据");
             return null;
         }
 
-        // 计算加权平均涨跌幅
-        // 直接使用币安API返回的24h涨跌幅，不需要自己计算基准价格
-        double totalWeightedChange = 0;
+        // 简单平均：使用3天前的基准价格计算涨跌幅
+        double totalChange = 0;
         double totalVolume = 0;
         int validCount = 0;
 
         for (TickerData ticker : tickers) {
-            double changePercent = ticker.getPriceChangePercent();
+            String symbol = ticker.getSymbol();
+            Double basePrice = basePrices.get(symbol);
+            
+            // 没有基准价格的币种跳过
+            if (basePrice == null || basePrice <= 0) {
+                continue;
+            }
+
+            // 计算相对于3天前基准的涨跌幅
+            double changePercent = (ticker.getLastPrice() - basePrice) / basePrice * 100;
             double volume = ticker.getQuoteVolume();
 
-            // 过滤异常值：涨跌幅超过200%的可能是异常数据，交易量为0的跳过
+            // 过滤异常值
             if (Math.abs(changePercent) > 200 || volume <= 0) {
                 continue;
             }
 
-            totalWeightedChange += changePercent * volume;
+            totalChange += changePercent;
             totalVolume += volume;
             validCount++;
         }
 
-        if (totalVolume <= 0 || validCount == 0) {
+        if (validCount == 0) {
             log.warn("无有效数据计算指数");
             return null;
         }
 
-        double indexValue = totalWeightedChange / totalVolume;
+        // 简单平均
+        double indexValue = totalChange / validCount;
 
         // 时间对齐到5分钟（使用UTC时间）
         LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
@@ -208,7 +224,7 @@ public class IndexCalculatorService {
 
             Map<String, KlineData> symbolData = entry.getValue();
             
-            double totalWeightedChange = 0;
+            double totalChange = 0;
             double totalVolume = 0;
             int validCount = 0;
 
@@ -229,13 +245,14 @@ public class IndexCalculatorService {
                     continue;
                 }
 
-                totalWeightedChange += changePercent * volume;
+                totalChange += changePercent;
                 totalVolume += volume;
                 validCount++;
             }
 
-            if (totalVolume > 0 && validCount > 0) {
-                double indexValue = totalWeightedChange / totalVolume;
+            if (validCount > 0) {
+                // 简单平均
+                double indexValue = totalChange / validCount;
                 indexList.add(new MarketIndex(timestamp, indexValue, totalVolume, validCount));
             }
         }
