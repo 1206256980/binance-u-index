@@ -105,9 +105,14 @@ function VolumeChart({ data }) {
         series: [
             {
                 name: '成交额',
-                type: 'bar',
-                barWidth: '60%',
-                itemStyle: {
+                type: 'line',
+                smooth: true,
+                symbol: 'none',
+                lineStyle: {
+                    width: 2,
+                    color: '#f59e0b'
+                },
+                areaStyle: {
                     color: {
                         type: 'linear',
                         x: 0,
@@ -115,8 +120,8 @@ function VolumeChart({ data }) {
                         x2: 0,
                         y2: 1,
                         colorStops: [
-                            { offset: 0, color: 'rgba(245, 158, 11, 0.8)' },
-                            { offset: 1, color: 'rgba(245, 158, 11, 0.3)' }
+                            { offset: 0, color: 'rgba(245, 158, 11, 0.4)' },
+                            { offset: 1, color: 'rgba(245, 158, 11, 0.05)' }
                         ]
                     }
                 },
