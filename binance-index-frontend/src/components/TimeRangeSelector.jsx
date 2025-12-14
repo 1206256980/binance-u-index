@@ -4,7 +4,10 @@ function TimeRangeSelector({ value, onChange }) {
         { label: '12小时', hours: 12 },
         { label: '1天', hours: 24 },
         { label: '3天', hours: 72 },
-        { label: '7天', hours: 168 }
+        { label: '7天', hours: 168 },
+        { label: '14天', hours: 336 },
+        { label: '21天', hours: 504 },
+        { label: '30天', hours: 720 }
     ]
 
     return (
