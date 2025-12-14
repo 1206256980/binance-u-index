@@ -231,19 +231,25 @@ public class IndexCalculatorService {
                 processedCount, failedCount, timeSeriesData.size());
 
         // 计算每个时间点的指数
-        // 需要先确定基准价格（最早时间点的价格）
+        // 需要先确定基准价格：为每个币种找最早出现的价格（处理新币种）
         Map<String, Double> historicalBasePrices = new HashMap<>();
-        Long firstTimestamp = timeSeriesData.keySet().stream().findFirst().orElse(null);
 
-        if (firstTimestamp != null) {
-            Map<String, KlineData> firstData = timeSeriesData.get(firstTimestamp);
-            for (Map.Entry<String, KlineData> entry : firstData.entrySet()) {
-                historicalBasePrices.put(entry.getKey(), entry.getValue().getOpenPrice());
+        // 遍历所有时间点（按时间顺序），为每个币种找最早出现的价格
+        for (Map<String, KlineData> symbolData : timeSeriesData.values()) {
+            for (Map.Entry<String, KlineData> entry : symbolData.entrySet()) {
+                String symbol = entry.getKey();
+                // 如果还没有这个币种的基准价格，就用这个（它是最早的）
+                if (!historicalBasePrices.containsKey(symbol)) {
+                    historicalBasePrices.put(symbol, entry.getValue().getOpenPrice());
+                }
             }
+        }
 
-            // 更新全局基准价格
+        // 更新全局基准价格
+        if (!historicalBasePrices.isEmpty()) {
             basePrices = new HashMap<>(historicalBasePrices);
             basePriceTime = LocalDateTime.now();
+            log.info("基准价格设置完成，共 {} 个币种", basePrices.size());
         }
 
         // 计算每个时间点的指数
