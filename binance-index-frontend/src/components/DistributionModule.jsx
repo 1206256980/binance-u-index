@@ -26,7 +26,7 @@ function DistributionModule() {
     const [sortOrder, setSortOrder] = useState('desc') // 排序方向: asc, desc
     const chartRef = useRef(null)
 
-    // 获取分布数据
+    // 获取分布数据（首次加载或切换时间时关闭面板）
     const fetchDistribution = useCallback(async () => {
         setLoading(true)
         setSelectedBucket(null) // 切换时间时关闭面板
@@ -42,9 +42,30 @@ function DistributionModule() {
         setLoading(false)
     }, [timeBase])
 
+    // 静默刷新（不关闭面板，用于自动刷新）
+    const silentRefresh = useCallback(async () => {
+        try {
+            const res = await axios.get(`/api/index/distribution?hours=${timeBase}`)
+            if (res.data.success) {
+                setDistributionData(res.data.data)
+            }
+        } catch (err) {
+            console.error('自动刷新分布数据失败:', err)
+        }
+    }, [timeBase])
+
     useEffect(() => {
         fetchDistribution()
     }, [fetchDistribution])
+
+    // 自动刷新（每分钟）
+    useEffect(() => {
+        const interval = setInterval(() => {
+            silentRefresh()
+        }, 60000) // 每分钟刷新
+
+        return () => clearInterval(interval)
+    }, [silentRefresh])
 
     // 复制币种名称
     const handleCopySymbol = async (symbol) => {
