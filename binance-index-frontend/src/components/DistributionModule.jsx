@@ -19,6 +19,7 @@ function DistributionModule() {
     const [distributionData, setDistributionData] = useState(null)
     const [loading, setLoading] = useState(false)
     const [selectedBucket, setSelectedBucket] = useState(null) // 选中的区间
+    const [showAllRanking, setShowAllRanking] = useState(false) // 显示全部排行榜
     const [copiedSymbol, setCopiedSymbol] = useState(null) // 复制提示
     const chartRef = useRef(null)
 
@@ -26,6 +27,7 @@ function DistributionModule() {
     const fetchDistribution = useCallback(async () => {
         setLoading(true)
         setSelectedBucket(null) // 切换时间时关闭面板
+        setShowAllRanking(false)
         try {
             const res = await axios.get(`/api/index/distribution?hours=${timeBase}`)
             if (res.data.success) {
@@ -55,6 +57,7 @@ function DistributionModule() {
     // 关闭排行榜面板
     const closePanel = () => {
         setSelectedBucket(null)
+        setShowAllRanking(false)
     }
 
     // 图表点击事件
@@ -62,8 +65,15 @@ function DistributionModule() {
         if (!distributionData || !distributionData.distribution) return
         const bucket = distributionData.distribution[params.dataIndex]
         if (bucket && bucket.count > 0) {
+            setShowAllRanking(false)
             setSelectedBucket(bucket)
         }
+    }
+
+    // 显示全部排行榜
+    const handleShowAllRanking = () => {
+        setSelectedBucket(null)
+        setShowAllRanking(true)
     }
 
     // 直方图配置
@@ -164,6 +174,28 @@ function DistributionModule() {
         }
     }
 
+    // 获取当前要显示的排行数据
+    const getRankingData = () => {
+        if (showAllRanking && distributionData?.allCoinsRanking) {
+            return {
+                title: '全部币种涨跌幅排行',
+                subtitle: `共 ${distributionData.totalCoins} 个币种`,
+                coins: distributionData.allCoinsRanking
+            }
+        }
+        if (selectedBucket) {
+            return {
+                title: selectedBucket.range,
+                subtitle: `${selectedBucket.count} 个币种`,
+                coins: selectedBucket.coinDetails || []
+            }
+        }
+        return null
+    }
+
+    const rankingData = getRankingData()
+    const isPanelOpen = showAllRanking || selectedBucket
+
     return (
         <div className="distribution-module">
             {/* 时间选择器 */}
@@ -209,8 +241,19 @@ function DistributionModule() {
 
             {/* 直方图 + 排行榜面板 */}
             <div className="distribution-charts">
-                <div className={`chart-section ${selectedBucket ? 'with-panel' : ''}`}>
-                    <div className="section-title">涨幅分布直方图 <span style={{ fontSize: '12px', color: '#64748b' }}>(点击柱子查看详情)</span></div>
+                <div className={`chart-section ${isPanelOpen ? 'with-panel' : ''}`}>
+                    <div className="section-title">
+                        涨幅分布直方图
+                        <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>(点击柱子查看详情)</span>
+                        {distributionData && (
+                            <button
+                                className="all-ranking-btn"
+                                onClick={handleShowAllRanking}
+                            >
+                                🏆 查看全部排行
+                            </button>
+                        )}
+                    </div>
                     {distributionData ? (
                         <ReactECharts
                             ref={chartRef}
@@ -225,18 +268,18 @@ function DistributionModule() {
                 </div>
 
                 {/* 排行榜滑出面板 */}
-                <div className={`ranking-panel ${selectedBucket ? 'open' : ''}`}>
-                    {selectedBucket && (
+                <div className={`ranking-panel ${isPanelOpen ? 'open' : ''}`}>
+                    {rankingData && (
                         <>
                             <div className="ranking-header">
                                 <div className="ranking-title">
-                                    <span className="range-badge">{selectedBucket.range}</span>
-                                    <span className="coin-count">{selectedBucket.count} 个币种</span>
+                                    <span className={`range-badge ${showAllRanking ? 'all' : ''}`}>{rankingData.title}</span>
+                                    <span className="coin-count">{rankingData.subtitle}</span>
                                 </div>
                                 <button className="close-btn" onClick={closePanel}>✕</button>
                             </div>
                             <div className="ranking-list">
-                                {(selectedBucket.coinDetails || []).map((coin, index) => (
+                                {rankingData.coins.map((coin, index) => (
                                     <div
                                         key={coin.symbol}
                                         className="ranking-item"
@@ -253,7 +296,7 @@ function DistributionModule() {
                                         )}
                                     </div>
                                 ))}
-                                {(!selectedBucket.coinDetails || selectedBucket.coinDetails.length === 0) && (
+                                {rankingData.coins.length === 0 && (
                                     <div className="no-data">暂无数据</div>
                                 )}
                             </div>

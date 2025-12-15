@@ -545,6 +545,13 @@ public class IndexCalculatorService {
         }
         data.setDistribution(distribution);
 
+        // 构建所有币种排行榜（按涨跌幅降序）
+        List<DistributionBucket.CoinDetail> allCoinsRanking = changeMap.entrySet().stream()
+                .map(e -> new DistributionBucket.CoinDetail(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Double.compare(b.getChangePercent(), a.getChangePercent()))
+                .collect(Collectors.toList());
+        data.setAllCoinsRanking(allCoinsRanking);
+
         log.info("分布统计完成: 上涨={}, 下跌={}, 区间大小={}%", upCount, downCount, bucketSize);
         return data;
     }
