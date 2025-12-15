@@ -60,13 +60,24 @@ function DistributionModule() {
         setShowAllRanking(false)
     }
 
-    // 图表点击事件
+    // 图表点击事件 - 支持点击柱子和 X 轴区域
     const onChartClick = (params) => {
         if (!distributionData || !distributionData.distribution) return
-        const bucket = distributionData.distribution[params.dataIndex]
-        if (bucket && bucket.count > 0) {
-            setShowAllRanking(false)
-            setSelectedBucket(bucket)
+
+        // 获取点击的数据索引
+        let dataIndex = params.dataIndex
+
+        // 如果点击的是 X 轴标签
+        if (params.componentType === 'xAxis') {
+            dataIndex = params.dataIndex
+        }
+
+        if (dataIndex !== undefined && dataIndex !== null) {
+            const bucket = distributionData.distribution[dataIndex]
+            if (bucket && bucket.count > 0) {
+                setShowAllRanking(false)
+                setSelectedBucket(bucket)
+            }
         }
     }
 
@@ -111,6 +122,9 @@ function DistributionModule() {
             backgroundColor: 'transparent',
             tooltip: {
                 trigger: 'axis',
+                axisPointer: {
+                    type: 'shadow'  // 阴影指示器，更容易看到悬浮区域
+                },
                 backgroundColor: 'rgba(22, 27, 34, 0.95)',
                 borderColor: 'rgba(99, 102, 241, 0.3)',
                 textStyle: { color: '#f1f5f9' },
@@ -119,10 +133,16 @@ function DistributionModule() {
                     if (!params || params.length === 0) return ''
                     const param = params[0]
                     const bucket = distribution[param.dataIndex]
+                    if (!bucket || bucket.count === 0) {
+                        return `<div style="padding: 8px;">
+                            <div style="font-weight: 600;">${bucket.range}</div>
+                            <div style="color: #94a3b8;">该区间暂无币种</div>
+                        </div>`
+                    }
                     return `<div style="padding: 8px;">
                         <div style="font-weight: 600; margin-bottom: 4px;">${bucket.range}</div>
                         <div>币种数量: <span style="color: #6366f1; font-weight: 600;">${bucket.count}</span></div>
-                        <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">点击查看详情</div>
+                        <div style="font-size: 11px; color: #10b981; margin-top: 4px; font-weight: 500;">👆 点击查看详情</div>
                     </div>`
                 }
             },
@@ -141,7 +161,8 @@ function DistributionModule() {
                     rotate: 45,
                     fontSize: 10
                 },
-                axisLine: { lineStyle: { color: 'rgba(100, 116, 139, 0.2)' } }
+                axisLine: { lineStyle: { color: 'rgba(100, 116, 139, 0.2)' } },
+                triggerEvent: true  // 开启 X 轴事件，支持点击 X 轴标签
             },
             yAxis: {
                 type: 'value',
@@ -153,23 +174,24 @@ function DistributionModule() {
             series: [{
                 type: 'bar',
                 data: counts.map((count, index) => ({
-                    value: count,
+                    // 0 值设为 null，不显示柱子
+                    value: count === 0 ? null : count,
                     itemStyle: {
                         color: colors[index],
                         cursor: count > 0 ? 'pointer' : 'default'
                     },
                     // 当柱子有值但太小时，显示一个标记
-                    label: count > 0 && count <= Math.max(...counts) * 0.02 ? {
+                    label: count > 0 && count <= Math.max(...counts) * 0.05 ? {
                         show: true,
                         position: 'top',
-                        formatter: '{c}',
+                        formatter: count.toString(),
                         color: colors[index],
-                        fontSize: 10,
+                        fontSize: 12,
                         fontWeight: 'bold'
                     } : { show: false }
                 })),
                 barWidth: '60%',
-                barMinHeight: 4  // 最小柱子高度为4像素，确保小值也可见
+                barMinHeight: 8  // 只对有值的柱子生效
             }]
         }
     }
@@ -266,6 +288,11 @@ function DistributionModule() {
                         <div className="chart-loading">加载中...</div>
                     )}
                 </div>
+
+                {/* 遮罩层 - 点击关闭侧边栏 */}
+                {isPanelOpen && (
+                    <div className="ranking-overlay" onClick={closePanel} />
+                )}
 
                 {/* 排行榜滑出面板 */}
                 <div className={`ranking-panel ${isPanelOpen ? 'open' : ''}`}>

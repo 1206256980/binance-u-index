@@ -474,6 +474,29 @@ body {
   color: var(--text-muted);
 }
 
+/* 遮罩层 - 点击关闭侧边栏 */
+.ranking-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 999;
+  cursor: pointer;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 /* ===== 排行榜滑出面板 ===== */
 .ranking-panel {
   position: fixed;
