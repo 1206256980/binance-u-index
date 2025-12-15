@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import ReactECharts from 'echarts-for-react'
 
@@ -18,10 +18,14 @@ function DistributionModule() {
     const [timeBase, setTimeBase] = useState(168) // 默认7天
     const [distributionData, setDistributionData] = useState(null)
     const [loading, setLoading] = useState(false)
+    const [selectedBucket, setSelectedBucket] = useState(null) // 选中的区间
+    const [copiedSymbol, setCopiedSymbol] = useState(null) // 复制提示
+    const chartRef = useRef(null)
 
     // 获取分布数据
     const fetchDistribution = useCallback(async () => {
         setLoading(true)
+        setSelectedBucket(null) // 切换时间时关闭面板
         try {
             const res = await axios.get(`/api/index/distribution?hours=${timeBase}`)
             if (res.data.success) {
@@ -36,6 +40,31 @@ function DistributionModule() {
     useEffect(() => {
         fetchDistribution()
     }, [fetchDistribution])
+
+    // 复制币种名称
+    const handleCopySymbol = async (symbol) => {
+        try {
+            await navigator.clipboard.writeText(symbol)
+            setCopiedSymbol(symbol)
+            setTimeout(() => setCopiedSymbol(null), 1500)
+        } catch (err) {
+            console.error('复制失败:', err)
+        }
+    }
+
+    // 关闭排行榜面板
+    const closePanel = () => {
+        setSelectedBucket(null)
+    }
+
+    // 图表点击事件
+    const onChartClick = (params) => {
+        if (!distributionData || !distributionData.distribution) return
+        const bucket = distributionData.distribution[params.dataIndex]
+        if (bucket && bucket.count > 0) {
+            setSelectedBucket(bucket)
+        }
+    }
 
     // 直方图配置
     const getHistogramOption = () => {
@@ -80,26 +109,11 @@ function DistributionModule() {
                     if (!params || params.length === 0) return ''
                     const param = params[0]
                     const bucket = distribution[param.dataIndex]
-                    let html = `<div style="padding: 8px; max-width: 320px;">
-                        <div style="font-weight: 600; margin-bottom: 8px;">${bucket.range}</div>
-                        <div>币种数量: <span style="color: #6366f1; font-weight: 600;">${bucket.count}</span></div>`
-                    if (bucket.coins && bucket.coins.length > 0) {
-                        const displayCoins = bucket.coins.slice(0, 20)
-                        const moreCount = bucket.coins.length - 20
-                        // 每4个一行显示
-                        let coinsHtml = '<div style="margin-top: 6px; font-size: 11px; color: #94a3b8;">'
-                        for (let i = 0; i < displayCoins.length; i += 4) {
-                            const row = displayCoins.slice(i, i + 4).join(', ')
-                            coinsHtml += `<div style="margin: 2px 0;">${row}</div>`
-                        }
-                        if (moreCount > 0) {
-                            coinsHtml += `<div style="margin-top: 4px; color: #64748b;">等 ${moreCount} 个...</div>`
-                        }
-                        coinsHtml += '</div>'
-                        html += coinsHtml
-                    }
-                    html += '</div>'
-                    return html
+                    return `<div style="padding: 8px;">
+                        <div style="font-weight: 600; margin-bottom: 4px;">${bucket.range}</div>
+                        <div>币种数量: <span style="color: #6366f1; font-weight: 600;">${bucket.count}</span></div>
+                        <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">点击查看详情</div>
+                    </div>`
                 }
             },
             grid: {
@@ -130,9 +144,22 @@ function DistributionModule() {
                 type: 'bar',
                 data: counts.map((count, index) => ({
                     value: count,
-                    itemStyle: { color: colors[index] }
+                    itemStyle: {
+                        color: colors[index],
+                        cursor: count > 0 ? 'pointer' : 'default'
+                    },
+                    // 当柱子有值但太小时，显示一个标记
+                    label: count > 0 && count <= Math.max(...counts) * 0.02 ? {
+                        show: true,
+                        position: 'top',
+                        formatter: '{c}',
+                        color: colors[index],
+                        fontSize: 10,
+                        fontWeight: 'bold'
+                    } : { show: false }
                 })),
-                barWidth: '60%'
+                barWidth: '60%',
+                barMinHeight: 4  // 最小柱子高度为4像素，确保小值也可见
             }]
         }
     }
@@ -180,18 +207,57 @@ function DistributionModule() {
                 </div>
             )}
 
-            {/* 直方图 */}
+            {/* 直方图 + 排行榜面板 */}
             <div className="distribution-charts">
-                <div className="chart-section">
-                    <div className="section-title">涨幅分布直方图</div>
+                <div className={`chart-section ${selectedBucket ? 'with-panel' : ''}`}>
+                    <div className="section-title">涨幅分布直方图 <span style={{ fontSize: '12px', color: '#64748b' }}>(点击柱子查看详情)</span></div>
                     {distributionData ? (
                         <ReactECharts
+                            ref={chartRef}
                             option={getHistogramOption()}
                             style={{ height: '300px', width: '100%' }}
                             opts={{ renderer: 'canvas' }}
+                            onEvents={{ click: onChartClick }}
                         />
                     ) : (
                         <div className="chart-loading">加载中...</div>
+                    )}
+                </div>
+
+                {/* 排行榜滑出面板 */}
+                <div className={`ranking-panel ${selectedBucket ? 'open' : ''}`}>
+                    {selectedBucket && (
+                        <>
+                            <div className="ranking-header">
+                                <div className="ranking-title">
+                                    <span className="range-badge">{selectedBucket.range}</span>
+                                    <span className="coin-count">{selectedBucket.count} 个币种</span>
+                                </div>
+                                <button className="close-btn" onClick={closePanel}>✕</button>
+                            </div>
+                            <div className="ranking-list">
+                                {(selectedBucket.coinDetails || []).map((coin, index) => (
+                                    <div
+                                        key={coin.symbol}
+                                        className="ranking-item"
+                                        onClick={() => handleCopySymbol(coin.symbol)}
+                                        title="点击复制"
+                                    >
+                                        <span className="rank">{index + 1}</span>
+                                        <span className="symbol">{coin.symbol.replace('USDT', '')}</span>
+                                        <span className={`change ${coin.changePercent >= 0 ? 'positive' : 'negative'}`}>
+                                            {coin.changePercent >= 0 ? '+' : ''}{coin.changePercent.toFixed(2)}%
+                                        </span>
+                                        {copiedSymbol === coin.symbol && (
+                                            <span className="copied-tip">已复制!</span>
+                                        )}
+                                    </div>
+                                ))}
+                                {(!selectedBucket.coinDetails || selectedBucket.coinDetails.length === 0) && (
+                                    <div className="no-data">暂无数据</div>
+                                )}
+                            </div>
+                        </>
                     )}
                 </div>
             </div>

@@ -352,19 +352,19 @@ public class IndexCalculatorService {
             LocalDateTime timestamp = LocalDateTime.ofInstant(
                     java.time.Instant.ofEpochMilli(entry.getKey()),
                     ZoneId.systemDefault());
-            
+
             // 跳过已有价格数据的时间点
             if (coinPriceRepository.existsByTimestamp(timestamp)) {
                 continue;
             }
-            
+
             for (Map.Entry<String, KlineData> klineEntry : entry.getValue().entrySet()) {
                 KlineData kline = klineEntry.getValue();
                 if (kline.getClosePrice() > 0) {
                     allCoinPrices.add(new CoinPrice(kline.getSymbol(), timestamp, kline.getClosePrice()));
                 }
             }
-            
+
             // 每1万条批量保存一次，避免内存溢出
             if (allCoinPrices.size() >= 10000) {
                 coinPriceRepository.saveAll(allCoinPrices);
@@ -405,46 +405,47 @@ public class IndexCalculatorService {
 
     /**
      * 获取涨幅分布数据（从数据库读取，速度快）
+     * 
      * @param hours 基准时间（多少小时前），支持小数
      * @return 涨幅分布数据
      */
     public DistributionData getDistribution(double hours) {
         log.info("计算涨幅分布，基准时间: {}小时前", hours);
-        
+
         long now = System.currentTimeMillis();
         // 转换为分钟以支持小数小时
         long minutes = (long) (hours * 60);
         LocalDateTime baseTime = LocalDateTime.now().minusMinutes(minutes);
-        
+
         // 从数据库获取最新价格
         List<CoinPrice> latestPrices = coinPriceRepository.findLatestPrices();
         if (latestPrices.isEmpty()) {
             log.warn("数据库中没有价格数据，可能需要等待回补完成");
             return null;
         }
-        
+
         // 从数据库获取基准时间的价格
         List<CoinPrice> basePriceList = coinPriceRepository.findEarliestPricesAfter(baseTime);
         if (basePriceList.isEmpty()) {
             log.warn("找不到基准时间 {} 的价格数据", baseTime);
             return null;
         }
-        
+
         // 转换为Map便于查找
         Map<String, Double> currentPriceMap = latestPrices.stream()
                 .collect(Collectors.toMap(CoinPrice::getSymbol, CoinPrice::getPrice, (a, b) -> a));
         Map<String, Double> basePriceMap = basePriceList.stream()
                 .collect(Collectors.toMap(CoinPrice::getSymbol, CoinPrice::getPrice, (a, b) -> a));
-        
+
         log.info("从数据库获取价格: 当前={} 个, 基准={} 个", currentPriceMap.size(), basePriceMap.size());
-        
+
         // 计算涨跌幅
         Map<String, Double> changeMap = new HashMap<>();
         for (Map.Entry<String, Double> entry : currentPriceMap.entrySet()) {
             String symbol = entry.getKey();
             Double currentPrice = entry.getValue();
             Double basePrice = basePriceMap.get(symbol);
-            
+
             if (basePrice != null && basePrice > 0 && currentPrice != null && currentPrice > 0) {
                 double changePercent = (currentPrice - basePrice) / basePrice * 100;
                 // 过滤异常值
@@ -453,37 +454,37 @@ public class IndexCalculatorService {
                 }
             }
         }
-        
+
         log.info("涨跌幅计算完成: {} 个币种", changeMap.size());
-        
+
         if (changeMap.isEmpty()) {
             log.warn("没有有效的涨跌幅数据");
             return null;
         }
-        
+
         // 计算涨跌幅范围
         double minChange = changeMap.values().stream().mapToDouble(Double::doubleValue).min().orElse(0);
         double maxChange = changeMap.values().stream().mapToDouble(Double::doubleValue).max().orElse(0);
-        
+
         // 根据数据范围动态确定区间大小
         double range = maxChange - minChange;
         double bucketSize;
         if (range <= 2) {
-            bucketSize = 0.2;  // 0.2%区间，适合分钟级
+            bucketSize = 0.2; // 0.2%区间，适合分钟级
         } else if (range <= 5) {
-            bucketSize = 0.5;  // 0.5%区间
+            bucketSize = 0.5; // 0.5%区间
         } else if (range <= 20) {
-            bucketSize = 1;    // 1%区间
+            bucketSize = 1; // 1%区间
         } else if (range <= 50) {
-            bucketSize = 2;    // 2%区间
+            bucketSize = 2; // 2%区间
         } else {
-            bucketSize = 5;    // 5%区间，适合长期
+            bucketSize = 5; // 5%区间，适合长期
         }
-        
+
         // 计算区间边界
         double bucketMin = Math.floor(minChange / bucketSize) * bucketSize;
         double bucketMax = Math.ceil(maxChange / bucketSize) * bucketSize;
-        
+
         // 创建区间
         Map<String, List<String>> buckets = new LinkedHashMap<>();
         for (double start = bucketMin; start < bucketMax; start += bucketSize) {
@@ -495,18 +496,20 @@ public class IndexCalculatorService {
             }
             buckets.put(rangeKey, new ArrayList<>());
         }
-        
+
         // 分配币种到区间
         int upCount = 0;
         int downCount = 0;
-        
+
         for (Map.Entry<String, Double> entry : changeMap.entrySet()) {
             String symbol = entry.getKey();
             double change = entry.getValue();
-            
-            if (change > 0) upCount++;
-            else if (change < 0) downCount++;
-            
+
+            if (change > 0)
+                upCount++;
+            else if (change < 0)
+                downCount++;
+
             // 计算所属区间
             double bucketStart = Math.floor(change / bucketSize) * bucketSize;
             String rangeKey;
@@ -515,28 +518,34 @@ public class IndexCalculatorService {
             } else {
                 rangeKey = String.format("%.0f%%~%.0f%%", bucketStart, bucketStart + bucketSize);
             }
-            
+
             if (buckets.containsKey(rangeKey)) {
                 buckets.get(rangeKey).add(symbol);
             }
         }
-        
+
         // 构建响应
         DistributionData data = new DistributionData();
         data.setTimestamp(now);
         data.setTotalCoins(changeMap.size());
         data.setUpCount(upCount);
         data.setDownCount(downCount);
-        
+
         List<DistributionBucket> distribution = new ArrayList<>();
         for (Map.Entry<String, List<String>> entry : buckets.entrySet()) {
-            distribution.add(new DistributionBucket(entry.getKey(), entry.getValue().size(), entry.getValue()));
+            List<String> coins = entry.getValue();
+
+            // 构建带涨跌幅的详情列表，并按涨跌幅排序
+            List<DistributionBucket.CoinDetail> coinDetails = coins.stream()
+                    .map(symbol -> new DistributionBucket.CoinDetail(symbol, changeMap.getOrDefault(symbol, 0.0)))
+                    .sorted((a, b) -> Double.compare(b.getChangePercent(), a.getChangePercent())) // 按涨跌幅降序
+                    .collect(Collectors.toList());
+
+            distribution.add(new DistributionBucket(entry.getKey(), coins.size(), coins, coinDetails));
         }
         data.setDistribution(distribution);
-        
+
         log.info("分布统计完成: 上涨={}, 下跌={}, 区间大小={}%", upCount, downCount, bucketSize);
         return data;
     }
 }
-
-
