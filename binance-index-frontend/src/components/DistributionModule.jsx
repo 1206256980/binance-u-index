@@ -12,7 +12,14 @@ const TIME_OPTIONS = [
     { label: '12小时', value: 12 },
     { label: '1天', value: 24 },
     { label: '3天', value: 72 },
-    { label: '7天', value: 168 }
+    { label: '7天', value: 168 },
+    { label: '10天', value: 240 },
+    { label: '15天', value: 360 },
+    { label: '30天', value: 720 },
+    { label: '40天', value: 960 },
+    { label: '60天', value: 1440 },
+    { label: '80天', value: 1920 },
+    { label: '100天', value: 2400 }
 ]
 
 function DistributionModule() {
@@ -284,15 +291,17 @@ function DistributionModule() {
                 <div className="distribution-title">📊 涨幅分布分析</div>
                 <div className="time-base-selector">
                     <span className="label">基准时间:</span>
-                    {TIME_OPTIONS.map(opt => (
-                        <button
-                            key={opt.value}
-                            className={`time-btn ${timeBase === opt.value ? 'active' : ''}`}
-                            onClick={() => setTimeBase(opt.value)}
-                        >
-                            {opt.label}
-                        </button>
-                    ))}
+                    <select
+                        className="time-select"
+                        value={timeBase}
+                        onChange={(e) => setTimeBase(Number(e.target.value))}
+                    >
+                        {TIME_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                            </option>
+                        ))}
+                    </select>
                     {loading && <span className="loading-text">加载中...</span>}
                 </div>
             </div>
