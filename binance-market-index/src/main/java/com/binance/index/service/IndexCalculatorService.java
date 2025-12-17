@@ -160,39 +160,7 @@ public class IndexCalculatorService {
         return index;
     }
 
-    /**
-     * 刷新基准价格（获取每个币种回补起始时间的价格）
-     */
-    public void refreshBasePrices() {
-        log.info("刷新基准价格...");
-        basePrices.clear();
 
-        List<String> symbols = binanceApiService.getAllUsdtSymbols();
-        long now = System.currentTimeMillis();
-        long backfillStartTime = now - 7L * 24 * 60 * 60 * 1000; // 7天前
-
-        int count = 0;
-        for (String symbol : symbols) {
-            try {
-                // 只获取回补起始时间点附近的1根K线
-                List<KlineData> klines = binanceApiService.getKlines(
-                        symbol, "5m", backfillStartTime, backfillStartTime + 300000, 1);
-
-                if (!klines.isEmpty()) {
-                    basePrices.put(symbol, klines.get(0).getClosePrice());
-                    count++;
-                }
-
-                // 请求间隔
-                Thread.sleep(binanceApiService.getRequestIntervalMs());
-            } catch (Exception e) {
-                log.error("获取基准价格失败 {}: {}", symbol, e.getMessage());
-            }
-        }
-
-        basePriceTime = LocalDateTime.now();
-        log.info("基准价格刷新完成，共 {} 个币种", count);
-    }
 
     /**
      * 回补历史数据
