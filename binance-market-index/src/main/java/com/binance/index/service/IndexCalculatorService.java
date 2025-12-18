@@ -168,7 +168,7 @@ public class IndexCalculatorService {
         // 保存每个币种的OHLC价格（使用K线本身的timestamp）
         List<CoinPrice> coinPrices = allKlines.stream()
                 .filter(k -> k.getClosePrice() > 0)
-                .map(k -> new CoinPrice(k.getSymbol(), k.getTimestamp(), 
+                .map(k -> new CoinPrice(k.getSymbol(), k.getTimestamp(),
                         k.getOpenPrice(), k.getHighPrice(), k.getLowPrice(), k.getClosePrice()))
                 .collect(Collectors.toList());
         jdbcCoinPriceRepository.batchInsert(coinPrices);
@@ -193,14 +193,14 @@ public class IndexCalculatorService {
 
         List<String> symbols = binanceApiService.getAllUsdtSymbols();
         long now = System.currentTimeMillis();
-        
+
         // 对齐到上一个5分钟边界（确保只获取已闭合的K线）
         // 例如：当前 09:02，对齐到 09:00，这样只会拿到 <=08:55 的已闭合K线
         long fiveMinutesMs = 5 * 60 * 1000;
         long alignedEndTime = (now / fiveMinutesMs) * fiveMinutesMs;
         long startTime = alignedEndTime - (long) days * 24 * 60 * 60 * 1000;
-        
-        log.info("回补时间范围: {} -> {} (对齐到5分钟边界)", 
+
+        log.info("回补时间范围: {} -> {} (对齐到5分钟边界)",
                 LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(startTime), ZoneId.systemDefault()),
                 LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(alignedEndTime), ZoneId.systemDefault()));
 
@@ -429,9 +429,13 @@ public class IndexCalculatorService {
             return null;
         }
 
-        // 基于最新数据时间计算基准时间（而不是系统当前时间）
+        // 获取最新数据时间（用于获取当前价格和计算最高/最低价区间）
         LocalDateTime latestTime = latestPrices.get(0).getTimestamp();
-        LocalDateTime baseTime = latestTime.minusMinutes(minutes);
+
+        // 基于当前系统时间（对齐到5分钟边界）计算基准时间
+        // 例如：系统时间11:42 → 对齐到11:40 → 减15分钟 → 基准时间11:25
+        LocalDateTime alignedNow = alignToFiveMinutes(LocalDateTime.now());
+        LocalDateTime baseTime = alignedNow.minusMinutes(minutes);
 
         // 从数据库获取基准时间的价格
         List<CoinPrice> basePriceList = coinPriceRepository.findEarliestPricesAfter(baseTime);
@@ -442,8 +446,8 @@ public class IndexCalculatorService {
 
         // 调试：打印关键时间点
         LocalDateTime actualBaseTime = basePriceList.get(0).getTimestamp();
-        log.info("[时间调试] 系统时间={}, 最新数据时间={}, 期望基准时间={}, 实际基准时间={}",
-                LocalDateTime.now(), latestTime, baseTime, actualBaseTime);
+        log.info("[时间调试] 系统时间={}, 对齐时间={}, 最新数据时间={}, 期望基准时间={}, 实际基准时间={}",
+                LocalDateTime.now(), alignedNow, latestTime, baseTime, actualBaseTime);
 
         // 转换为Map便于查找
         // 当前价格使用收盘价
@@ -506,7 +510,8 @@ public class IndexCalculatorService {
         // 调试日志：打印前5个币种的计算详情
         int debugCount = 0;
         for (Map.Entry<String, Double> entry : changeMap.entrySet()) {
-            if (debugCount++ >= 5) break;
+            if (debugCount++ >= 5)
+                break;
             String symbol = entry.getKey();
             log.info("[调试] {} 基准开盘价={} 当前收盘价={} 当前涨幅={}% 最高价={} 最高涨幅={}% 最低价={} 最低涨幅={}%",
                     symbol,
