@@ -47,9 +47,9 @@ public class DataCollectorScheduler {
     /**
      * 每5分钟采集一次数据
      * cron: 秒 分 时 日 月 周
-     * 0 0/5 * * * * 表示每5分钟的第0秒执行
+     * 10 0/5 * * * * 表示每5分钟的第10秒执行（给币安API时间更新K线数据）
      */
-    @Scheduled(cron = "0 0/5 * * * *")
+    @Scheduled(cron = "10 0/5 * * * *")
     public void collectData() {
         if (!isBackfillComplete) {
             log.debug("历史数据回补尚未完成，跳过本次采集");
