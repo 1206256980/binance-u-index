@@ -73,4 +73,11 @@ public interface CoinPriceRepository extends JpaRepository<CoinPrice, Long> {
     @Query("SELECT DISTINCT cp.timestamp FROM CoinPrice cp WHERE cp.timestamp >= :startTime AND cp.timestamp <= :endTime")
     List<LocalDateTime> findAllDistinctTimestampsBetween(@Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 查询指定币种在时间范围内的所有价格记录（调试用）
+     */
+    @Query("SELECT cp FROM CoinPrice cp WHERE cp.symbol = :symbol AND cp.timestamp >= :startTime ORDER BY cp.timestamp DESC")
+    List<CoinPrice> findBySymbolAndTimeRange(@Param("symbol") String symbol, @Param("startTime") LocalDateTime startTime);
 }
+

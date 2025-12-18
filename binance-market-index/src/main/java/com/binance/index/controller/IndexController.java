@@ -177,5 +177,37 @@ public class IndexController {
         
         return ResponseEntity.ok(response);
     }
+
+    /**
+     * 调试接口：查询指定币种的历史价格数据
+     * @param symbol 币种符号，如 SOLUSDT
+     * @param hours 查询多少小时的数据，默认1小时
+     */
+    @GetMapping("/debug/prices")
+    public ResponseEntity<Map<String, Object>> debugPrices(
+            @RequestParam String symbol,
+            @RequestParam(defaultValue = "1") double hours) {
+        
+        java.time.LocalDateTime startTime = java.time.LocalDateTime.now().minusMinutes((long)(hours * 60));
+        List<com.binance.index.entity.CoinPrice> prices = 
+                indexCalculatorService.getCoinPriceHistory(symbol, startTime);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("symbol", symbol);
+        response.put("queryStartTime", startTime.toString());
+        response.put("count", prices.size());
+        response.put("data", prices.stream().map(p -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("timestamp", p.getTimestamp().toString());
+            item.put("openPrice", p.getOpenPrice());
+            item.put("highPrice", p.getHighPrice());
+            item.put("lowPrice", p.getLowPrice());
+            item.put("closePrice", p.getPrice());
+            return item;
+        }).collect(Collectors.toList()));
+        
+        return ResponseEntity.ok(response);
+    }
 }
 

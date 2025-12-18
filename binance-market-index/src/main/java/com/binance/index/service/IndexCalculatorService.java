@@ -377,6 +377,14 @@ public class IndexCalculatorService {
     }
 
     /**
+     * 查询指定币种的历史价格数据（调试用）
+     */
+    public List<CoinPrice> getCoinPriceHistory(String symbol, LocalDateTime startTime) {
+        return coinPriceRepository.findBySymbolAndTimeRange(symbol, startTime);
+    }
+
+
+    /**
      * 时间对齐到5分钟
      */
     private LocalDateTime alignToFiveMinutes(LocalDateTime time) {
@@ -413,6 +421,12 @@ public class IndexCalculatorService {
             return null;
         }
 
+        // 调试：打印关键时间点
+        LocalDateTime latestTime = latestPrices.get(0).getTimestamp();
+        LocalDateTime actualBaseTime = basePriceList.get(0).getTimestamp();
+        log.info("[时间调试] 当前时间={}, 期望基准时间={}, 实际基准时间={}, 最新数据时间={}",
+                LocalDateTime.now(), baseTime, actualBaseTime, latestTime);
+
         // 转换为Map便于查找
         // 当前价格使用收盘价
         Map<String, Double> currentPriceMap = latestPrices.stream()
@@ -423,7 +437,6 @@ public class IndexCalculatorService {
                 .collect(Collectors.toMap(CoinPrice::getSymbol, CoinPrice::getOpenPrice, (a, b) -> a));
 
         // 获取时间区间内的最高/最低价格
-        LocalDateTime latestTime = latestPrices.get(0).getTimestamp();
         List<Object[]> maxPricesResult = coinPriceRepository.findMaxPricesBySymbolInRange(baseTime, latestTime);
         List<Object[]> minPricesResult = coinPriceRepository.findMinPricesBySymbolInRange(baseTime, latestTime);
 
