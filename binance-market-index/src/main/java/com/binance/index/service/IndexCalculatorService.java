@@ -150,10 +150,10 @@ public class IndexCalculatorService {
         MarketIndex index = new MarketIndex(alignedTime, indexValue, totalVolume, validCount, upCount, downCount, adr);
         marketIndexRepository.save(index);
 
-        // 保存每个币种的OHLC价格
+        // 保存每个币种的OHLC价格（使用K线本身的timestamp，而不是系统时间）
         List<CoinPrice> coinPrices = allKlines.stream()
                 .filter(k -> k.getClosePrice() > 0)
-                .map(k -> new CoinPrice(k.getSymbol(), alignedTime, 
+                .map(k -> new CoinPrice(k.getSymbol(), k.getTimestamp(), 
                         k.getOpenPrice(), k.getHighPrice(), k.getLowPrice(), k.getClosePrice()))
                 .collect(Collectors.toList());
         jdbcCoinPriceRepository.batchInsert(coinPrices);
