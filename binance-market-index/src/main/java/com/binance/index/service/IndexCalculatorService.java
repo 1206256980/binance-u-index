@@ -17,6 +17,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
@@ -35,6 +36,23 @@ public class IndexCalculatorService {
     private Map<String, Double> basePrices = new HashMap<>();
     private LocalDateTime basePriceTime;
 
+    // 回补状态标志
+    private volatile boolean backfillInProgress = false;
+
+    // 回补期间的缓冲队列：暂存实时采集的数据，回补完成后再保存
+    private final ConcurrentLinkedQueue<BufferedData> pendingDataQueue = new ConcurrentLinkedQueue<>();
+
+    // 内部类：用于暂存待保存的数据
+    private static class BufferedData {
+        final MarketIndex marketIndex;
+        final List<CoinPrice> coinPrices;
+
+        BufferedData(MarketIndex marketIndex, List<CoinPrice> coinPrices) {
+            this.marketIndex = marketIndex;
+            this.coinPrices = coinPrices;
+        }
+    }
+
     public IndexCalculatorService(BinanceApiService binanceApiService,
             MarketIndexRepository marketIndexRepository,
             CoinPriceRepository coinPriceRepository,
@@ -45,6 +63,20 @@ public class IndexCalculatorService {
         this.coinPriceRepository = coinPriceRepository;
         this.jdbcCoinPriceRepository = jdbcCoinPriceRepository;
         this.executorService = klineExecutorService;
+    }
+
+    /**
+     * 设置回补状态
+     */
+    public void setBackfillInProgress(boolean inProgress) {
+        this.backfillInProgress = inProgress;
+    }
+
+    /**
+     * 检查回补是否正在进行
+     */
+    public boolean isBackfillInProgress() {
+        return backfillInProgress;
     }
 
     /**
@@ -180,8 +212,183 @@ public class IndexCalculatorService {
         return index;
     }
 
+    /**
+     * 回补期间采集数据并暂存到内存队列（不保存到数据库）
+     * 这样可以确保在回补完成后，按正确的时间顺序保存数据
+     */
+    public void collectAndBuffer() {
+        // 如果没有基准价格，跳过采集
+        if (basePrices.isEmpty()) {
+            log.debug("基准价格为空，跳过暂存采集");
+            return;
+        }
 
+        // 预测最新闭合K线的时间
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        LocalDateTime expectedKlineTime = alignToFiveMinutes(now).minusMinutes(5);
 
+        // 检查是否已存在该时间点的数据（避免重复采集）
+        if (marketIndexRepository.existsByTimestamp(expectedKlineTime)) {
+            log.debug("时间点 {} 已存在数据，跳过暂存采集", expectedKlineTime);
+            return;
+        }
+
+        // 检查队列中是否已有该时间点的数据（避免重复暂存）
+        for (BufferedData buffered : pendingDataQueue) {
+            if (buffered.marketIndex.getTimestamp().equals(expectedKlineTime)) {
+                log.debug("时间点 {} 已在暂存队列中，跳过", expectedKlineTime);
+                return;
+            }
+        }
+
+        // 获取所有需要处理的币种
+        List<String> symbols = binanceApiService.getAllUsdtSymbols();
+        if (symbols.isEmpty()) {
+            log.warn("无法获取交易对列表");
+            return;
+        }
+
+        log.info("回补期间暂存采集：开始获取 {} 个币种的K线数据...", symbols.size());
+        long startTime = System.currentTimeMillis();
+
+        // 并发获取所有币种的最新K线
+        List<CompletableFuture<KlineData>> futures = symbols.stream()
+                .map(symbol -> CompletableFuture.supplyAsync(
+                        () -> binanceApiService.getLatestKline(symbol),
+                        executorService))
+                .collect(Collectors.toList());
+
+        // 等待所有请求完成
+        List<KlineData> allKlines = futures.stream()
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("暂存采集K线数据完成，成功 {} 个，耗时 {}ms", allKlines.size(), elapsed);
+
+        if (allKlines.isEmpty()) {
+            log.warn("无有效K线数据");
+            return;
+        }
+
+        // 使用K线本身的timestamp
+        LocalDateTime klineTime = allKlines.get(0).getTimestamp();
+
+        // 再次检查（双重检查，防止并发）
+        if (marketIndexRepository.existsByTimestamp(klineTime)) {
+            log.debug("时间点 {} 已存在数据，跳过暂存", klineTime);
+            return;
+        }
+
+        // 检查队列中是否已有该时间点
+        for (BufferedData buffered : pendingDataQueue) {
+            if (buffered.marketIndex.getTimestamp().equals(klineTime)) {
+                log.debug("时间点 {} 已在暂存队列中，跳过", klineTime);
+                return;
+            }
+        }
+
+        // 计算指数和成交额
+        double totalChange = 0;
+        double totalVolume = 0;
+        int validCount = 0;
+        int upCount = 0;
+        int downCount = 0;
+
+        List<CoinPrice> coinPrices = new ArrayList<>();
+
+        for (KlineData kline : allKlines) {
+            String symbol = kline.getSymbol();
+            Double basePrice = basePrices.get(symbol);
+
+            // 新币处理：如果没有基准价格，使用当前价格作为基准
+            if (basePrice == null || basePrice <= 0) {
+                if (kline.getClosePrice() > 0) {
+                    basePrices.put(symbol, kline.getClosePrice());
+                    log.info("新币种 {} 设置基准价格: {}", symbol, kline.getClosePrice());
+                }
+                continue;
+            }
+
+            // 计算涨跌幅
+            double changePercent = (kline.getClosePrice() - basePrice) / basePrice * 100;
+            double volume = kline.getVolume();
+
+            if (changePercent > 0) {
+                upCount++;
+            } else if (changePercent < 0) {
+                downCount++;
+            }
+
+            totalChange += changePercent;
+            totalVolume += volume;
+            validCount++;
+
+            // 收集币种价格
+            if (kline.getClosePrice() > 0) {
+                coinPrices.add(new CoinPrice(kline.getSymbol(), kline.getTimestamp(),
+                        kline.getOpenPrice(), kline.getHighPrice(), kline.getLowPrice(), kline.getClosePrice()));
+            }
+        }
+
+        if (validCount == 0) {
+            log.warn("无有效数据计算指数（暂存）");
+            return;
+        }
+
+        double indexValue = totalChange / validCount;
+        double adr = downCount > 0 ? (double) upCount / downCount : upCount;
+
+        MarketIndex index = new MarketIndex(klineTime, indexValue, totalVolume, validCount, upCount, downCount, adr);
+
+        // 暂存到队列，不保存到数据库
+        pendingDataQueue.offer(new BufferedData(index, coinPrices));
+        log.info("数据已暂存: 时间={}, 队列大小={}", klineTime, pendingDataQueue.size());
+    }
+
+    /**
+     * 将暂存队列中的数据保存到数据库（回补完成后调用）
+     * 确保按时间顺序保存，且跳过已存在的数据
+     */
+    public void flushPendingData() {
+        if (pendingDataQueue.isEmpty()) {
+            log.info("暂存队列为空，无需刷新");
+            return;
+        }
+
+        log.info("开始将 {} 条暂存数据保存到数据库...", pendingDataQueue.size());
+        int savedIndexCount = 0;
+        int savedPriceCount = 0;
+        int skippedCount = 0;
+
+        BufferedData data;
+        while ((data = pendingDataQueue.poll()) != null) {
+            LocalDateTime timestamp = data.marketIndex.getTimestamp();
+
+            // 检查是否已存在（避免与回补数据重复）
+            if (marketIndexRepository.existsByTimestamp(timestamp)) {
+                log.debug("时间点 {} 已存在（回补数据），跳过暂存数据", timestamp);
+                skippedCount++;
+                continue;
+            }
+
+            // 保存指数
+            marketIndexRepository.save(data.marketIndex);
+            savedIndexCount++;
+
+            // 保存币种价格
+            if (!data.coinPrices.isEmpty()) {
+                jdbcCoinPriceRepository.batchInsert(data.coinPrices);
+                savedPriceCount += data.coinPrices.size();
+            }
+
+            log.debug("暂存数据已保存: 时间={}", timestamp);
+        }
+
+        log.info("暂存数据刷新完成: 保存指数 {} 条, 价格 {} 条, 跳过 {} 条（已存在）",
+                savedIndexCount, savedPriceCount, skippedCount);
+    }
 
     /**
      * 回补历史数据
@@ -398,7 +605,6 @@ public class IndexCalculatorService {
     public List<CoinPrice> getCoinPriceHistory(String symbol, LocalDateTime startTime) {
         return coinPriceRepository.findBySymbolAndTimeRange(symbol, startTime);
     }
-
 
     /**
      * 时间对齐到5分钟

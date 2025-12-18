@@ -35,11 +35,22 @@ public class DataCollectorScheduler {
         // 异步执行回补，不阻塞应用启动
         new Thread(() -> {
             try {
+                // 设置回补状态
+                indexCalculatorService.setBackfillInProgress(true);
+
                 indexCalculatorService.backfillHistoricalData(backfillDays);
+
+                // 回补完成后，先将暂存的数据保存到数据库
+                log.info("回补完成，开始刷新暂存数据...");
+                indexCalculatorService.flushPendingData();
+
+                // 清除回补状态
+                indexCalculatorService.setBackfillInProgress(false);
                 isBackfillComplete = true;
-                log.info("历史数据回补完成");
+                log.info("历史数据回补完成，暂存数据已刷新");
             } catch (Exception e) {
                 log.error("历史数据回补失败: {}", e.getMessage(), e);
+                indexCalculatorService.setBackfillInProgress(false);
             }
         }, "backfill-thread").start();
     }
@@ -52,7 +63,14 @@ public class DataCollectorScheduler {
     @Scheduled(cron = "10 0/5 * * * *")
     public void collectData() {
         if (!isBackfillComplete) {
-            log.debug("历史数据回补尚未完成，跳过本次采集");
+            // 回补未完成时，采集数据但暂存到内存队列，不保存到数据库
+            // 这样可以确保回补期间的实时数据不会丢失
+            log.info("回补进行中，采集数据暂存到内存队列");
+            try {
+                indexCalculatorService.collectAndBuffer();
+            } catch (Exception e) {
+                log.error("暂存采集失败: {}", e.getMessage(), e);
+            }
             return;
         }
 
