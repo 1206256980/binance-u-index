@@ -414,10 +414,13 @@ public class IndexCalculatorService {
         }
 
         // 转换为Map便于查找
+        // 当前价格使用收盘价
         Map<String, Double> currentPriceMap = latestPrices.stream()
                 .collect(Collectors.toMap(CoinPrice::getSymbol, CoinPrice::getPrice, (a, b) -> a));
+        // 基准价格使用开盘价（更准确地反映起点）
         Map<String, Double> basePriceMap = basePriceList.stream()
-                .collect(Collectors.toMap(CoinPrice::getSymbol, CoinPrice::getPrice, (a, b) -> a));
+                .filter(cp -> cp.getOpenPrice() != null)
+                .collect(Collectors.toMap(CoinPrice::getSymbol, CoinPrice::getOpenPrice, (a, b) -> a));
 
         // 获取时间区间内的最高/最低价格
         LocalDateTime latestTime = latestPrices.get(0).getTimestamp();
@@ -467,6 +470,22 @@ public class IndexCalculatorService {
                 }
 
             }
+        }
+
+        // 调试日志：打印前5个币种的计算详情
+        int debugCount = 0;
+        for (Map.Entry<String, Double> entry : changeMap.entrySet()) {
+            if (debugCount++ >= 5) break;
+            String symbol = entry.getKey();
+            log.info("[调试] {} 基准开盘价={} 当前收盘价={} 当前涨幅={}% 最高价={} 最高涨幅={}% 最低价={} 最低涨幅={}%",
+                    symbol,
+                    basePriceMap.get(symbol),
+                    currentPriceMap.get(symbol),
+                    String.format("%.4f", entry.getValue()),
+                    maxPriceMap.get(symbol),
+                    String.format("%.4f", maxChangeMap.getOrDefault(symbol, 0.0)),
+                    minPriceMap.get(symbol),
+                    String.format("%.4f", minChangeMap.getOrDefault(symbol, 0.0)));
         }
 
         log.info("涨跌幅计算完成: {} 个币种", changeMap.size());
