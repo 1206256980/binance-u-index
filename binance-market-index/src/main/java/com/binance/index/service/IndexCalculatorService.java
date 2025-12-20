@@ -3,10 +3,12 @@ package com.binance.index.service;
 import com.binance.index.dto.DistributionBucket;
 import com.binance.index.dto.DistributionData;
 import com.binance.index.dto.KlineData;
+import com.binance.index.entity.BasePrice;
 import com.binance.index.entity.CoinPrice;
 import com.binance.index.entity.MarketIndex;
 import com.binance.index.repository.CoinPriceRepository;
 import com.binance.index.repository.JdbcCoinPriceRepository;
+import com.binance.index.repository.BasePriceRepository;
 import com.binance.index.repository.MarketIndexRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +32,7 @@ public class IndexCalculatorService {
     private final MarketIndexRepository marketIndexRepository;
     private final CoinPriceRepository coinPriceRepository;
     private final JdbcCoinPriceRepository jdbcCoinPriceRepository;
+    private final BasePriceRepository basePriceRepository;
     private final ExecutorService executorService;
 
     // 缓存各币种的基准价格（回补起始时间的价格）
@@ -57,11 +60,13 @@ public class IndexCalculatorService {
             MarketIndexRepository marketIndexRepository,
             CoinPriceRepository coinPriceRepository,
             JdbcCoinPriceRepository jdbcCoinPriceRepository,
+            BasePriceRepository basePriceRepository,
             ExecutorService klineExecutorService) {
         this.binanceApiService = binanceApiService;
         this.marketIndexRepository = marketIndexRepository;
         this.coinPriceRepository = coinPriceRepository;
         this.jdbcCoinPriceRepository = jdbcCoinPriceRepository;
+        this.basePriceRepository = basePriceRepository;
         this.executorService = klineExecutorService;
     }
 
@@ -152,11 +157,13 @@ public class IndexCalculatorService {
             String symbol = kline.getSymbol();
             Double basePrice = basePrices.get(symbol);
 
-            // 新币处理：如果没有基准价格，使用当前价格作为基准
+            // 新币处理：如果没有基准价格，使用当前价格作为基准并保存到数据库
             if (basePrice == null || basePrice <= 0) {
                 if (kline.getClosePrice() > 0) {
                     basePrices.put(symbol, kline.getClosePrice());
-                    log.info("新币种 {} 设置基准价格: {}", symbol, kline.getClosePrice());
+                    // 同时保存到数据库
+                    basePriceRepository.save(new BasePrice(symbol, kline.getClosePrice()));
+                    log.info("新币种 {} 设置基准价格: {} (已保存到数据库)", symbol, kline.getClosePrice());
                 }
                 continue; // 第一次采集时跳过计算，下次开始参与
             }
@@ -387,6 +394,17 @@ public class IndexCalculatorService {
     public void backfillHistoricalData(int days) {
         log.info("开始回补 {} 天历史数据...", days);
 
+        // 首先尝试从数据库加载基准价格
+        List<BasePrice> existingBasePrices = basePriceRepository.findAll();
+        if (!existingBasePrices.isEmpty()) {
+            basePrices = existingBasePrices.stream()
+                    .collect(Collectors.toMap(BasePrice::getSymbol, BasePrice::getPrice, (a, b) -> a));
+            basePriceTime = existingBasePrices.get(0).getCreatedAt();
+            log.info("从数据库加载基准价格成功，共 {} 个币种，创建时间: {}", basePrices.size(), basePriceTime);
+        } else {
+            log.info("数据库中没有基准价格，将从历史数据计算");
+        }
+
         List<String> symbols = binanceApiService.getAllUsdtSymbols();
         long now = System.currentTimeMillis();
 
@@ -461,10 +479,19 @@ public class IndexCalculatorService {
             }
         }
 
-        // 更新全局基准价格
+        // 更新全局基准价格并保存到数据库
         if (!historicalBasePrices.isEmpty()) {
             basePrices = new HashMap<>(historicalBasePrices);
             basePriceTime = LocalDateTime.now();
+
+            // 保存到数据库（仅当数据库中没有基准价格时）
+            if (basePriceRepository.count() == 0) {
+                List<BasePrice> basePriceList = historicalBasePrices.entrySet().stream()
+                        .map(e -> new BasePrice(e.getKey(), e.getValue()))
+                        .collect(Collectors.toList());
+                basePriceRepository.saveAll(basePriceList);
+                log.info("基准价格已保存到数据库，共 {} 个币种", basePriceList.size());
+            }
             log.info("基准价格设置完成，共 {} 个币种", basePrices.size());
         }
 
