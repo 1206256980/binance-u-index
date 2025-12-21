@@ -240,32 +240,48 @@ public class IndexController {
     /**
      * 删除指定时间范围内的数据（用于清理污染数据）
      * 时间格式: yyyy-MM-dd HH:mm 或 yyyy-MM-ddTHH:mm:ss
-     * 示例: DELETE /api/index/data?start=2025-12-21 10:00&end=2025-12-21 10:30
+     * timezone: 输入时间的时区，默认 Asia/Shanghai（东八区），数据库存的是UTC
+     * 示例: DELETE /api/index/data?start=2025-12-21 10:00&end=2025-12-21
+     * 10:30&timezone=Asia/Shanghai
      */
     @DeleteMapping("/data")
     public ResponseEntity<Map<String, Object>> deleteDataInRange(
             @RequestParam String start,
-            @RequestParam String end) {
+            @RequestParam String end,
+            @RequestParam(defaultValue = "Asia/Shanghai") String timezone) {
 
         Map<String, Object> response = new HashMap<>();
 
         try {
             // 解析时间，支持多种格式
-            java.time.LocalDateTime startTime = parseDateTime(start);
-            java.time.LocalDateTime endTime = parseDateTime(end);
+            java.time.LocalDateTime startLocal = parseDateTime(start);
+            java.time.LocalDateTime endLocal = parseDateTime(end);
+
+            // 将输入时间从用户时区转换为UTC（数据库存的是UTC）
+            java.time.ZoneId userZone = java.time.ZoneId.of(timezone);
+            java.time.ZoneId utcZone = java.time.ZoneId.of("UTC");
+
+            java.time.LocalDateTime startUtc = startLocal.atZone(userZone).withZoneSameInstant(utcZone)
+                    .toLocalDateTime();
+            java.time.LocalDateTime endUtc = endLocal.atZone(userZone).withZoneSameInstant(utcZone).toLocalDateTime();
 
             // 验证时间范围
-            if (startTime.isAfter(endTime)) {
+            if (startUtc.isAfter(endUtc)) {
                 response.put("success", false);
                 response.put("message", "开始时间不能晚于结束时间");
                 return ResponseEntity.badRequest().body(response);
             }
 
             // 执行删除
-            Map<String, Object> result = indexCalculatorService.deleteDataInRange(startTime, endTime);
+            Map<String, Object> result = indexCalculatorService.deleteDataInRange(startUtc, endUtc);
 
             response.put("success", true);
             response.put("message", "数据删除成功");
+            response.put("inputTimezone", timezone);
+            response.put("inputStart", start);
+            response.put("inputEnd", end);
+            response.put("utcStart", startUtc.toString());
+            response.put("utcEnd", endUtc.toString());
             response.putAll(result);
 
             return ResponseEntity.ok(response);
