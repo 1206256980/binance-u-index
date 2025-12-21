@@ -29,7 +29,7 @@ public class BinanceApiService {
 
     private final OkHttpClient httpClient;
     private final ObjectMapper objectMapper;
-    
+
     // 全局限流标志 - 一旦遇到429/418立即停止所有API调用
     private final AtomicBoolean rateLimited = new AtomicBoolean(false);
     private volatile String rateLimitReason = "";
@@ -49,27 +49,27 @@ public class BinanceApiService {
         this.httpClient = httpClient;
         this.objectMapper = new ObjectMapper();
     }
-    
+
     /**
      * 检查是否被限流
      */
     public boolean isRateLimited() {
         return rateLimited.get();
     }
-    
+
     /**
      * 触发限流保护
      */
     private void triggerRateLimit(int statusCode, String symbol) {
         rateLimited.set(true);
-        rateLimitReason = String.format("状态码=%d, 币种=%s, 时间=%s", 
+        rateLimitReason = String.format("状态码=%d, 币种=%s, 时间=%s",
                 statusCode, symbol, LocalDateTime.now());
-        
+
         log.error("🚨🚨🚨 [严重警告] 币安API返回 {} - IP可能已被封禁！", statusCode);
         log.error("🚨🚨🚨 [严重警告] 所有API调用已停止，请检查IP或更换节点！");
         log.error("🚨🚨🚨 [严重警告] 限流原因: {}", rateLimitReason);
     }
-    
+
     /**
      * 重置限流状态
      */
@@ -78,7 +78,7 @@ public class BinanceApiService {
         rateLimitReason = "";
         log.info("✅ 限流保护已重置，API调用已恢复");
     }
-    
+
     /**
      * 获取限流状态
      */
@@ -103,25 +103,25 @@ public class BinanceApiService {
      */
     public List<String> getAllUsdtSymbols() {
         List<String> symbols = new ArrayList<>();
-        
+
         // 检查是否被限流
         if (isRateLimited()) {
             return symbols;
         }
-        
+
         try {
             String url = baseUrl + "/fapi/v1/ticker/24hr";
             Request request = new Request.Builder().url(url).get().build();
 
             try (Response response = httpClient.newCall(request).execute()) {
                 int code = response.code();
-                
+
                 // 检查是否被限流或封IP
                 if (code == 429 || code == 418) {
                     triggerRateLimit(code, "getAllUsdtSymbols");
                     return symbols;
                 }
-                
+
                 if (response.isSuccessful() && response.body() != null) {
                     JsonNode root = objectMapper.readTree(response.body().string());
 
@@ -156,25 +156,25 @@ public class BinanceApiService {
      */
     public List<TickerData> getAll24hTickers() {
         List<TickerData> tickers = new ArrayList<>();
-        
+
         // 检查是否被限流
         if (isRateLimited()) {
             return tickers;
         }
-        
+
         try {
             String url = baseUrl + "/fapi/v1/ticker/24hr";
             Request request = new Request.Builder().url(url).get().build();
 
             try (Response response = httpClient.newCall(request).execute()) {
                 int code = response.code();
-                
+
                 // 检查是否被限流或封IP
                 if (code == 429 || code == 418) {
                     triggerRateLimit(code, "getAll24hTickers");
                     return tickers;
                 }
-                
+
                 if (response.isSuccessful() && response.body() != null) {
                     JsonNode root = objectMapper.readTree(response.body().string());
 
@@ -220,12 +220,12 @@ public class BinanceApiService {
      */
     public List<KlineData> getKlines(String symbol, String interval, long startTime, long endTime, int limit) {
         List<KlineData> klines = new ArrayList<>();
-        
+
         // 检查是否被限流
         if (isRateLimited()) {
             return klines;
         }
-        
+
         try {
             String url = String.format("%s/fapi/v1/klines?symbol=%s&interval=%s&startTime=%d&endTime=%d&limit=%d",
                     baseUrl, symbol, interval, startTime, endTime, limit);
@@ -234,19 +234,20 @@ public class BinanceApiService {
 
             try (Response response = httpClient.newCall(request).execute()) {
                 int code = response.code();
-                
+
                 // 检查是否被限流或封IP
                 if (code == 429 || code == 418) {
                     triggerRateLimit(code, symbol);
                     return klines;
                 }
-                
+
                 if (response.isSuccessful() && response.body() != null) {
                     JsonNode root = objectMapper.readTree(response.body().string());
 
                     if (root.isArray()) {
                         for (JsonNode klineNode : root) {
-                            // K线数据格式: [openTime, open, high, low, close, volume, closeTime, quoteVolume, ...]
+                            // K线数据格式: [openTime, open, high, low, close, volume, closeTime, quoteVolume,
+                            // ...]
                             long openTime = klineNode.get(0).asLong();
                             double openPrice = klineNode.get(1).asDouble();
                             double highPrice = klineNode.get(2).asDouble();
@@ -258,7 +259,8 @@ public class BinanceApiService {
                             LocalDateTime timestamp = LocalDateTime.ofInstant(
                                     Instant.ofEpochMilli(openTime), ZoneId.of("UTC"));
 
-                            KlineData kline = new KlineData(symbol, timestamp, openPrice, highPrice, lowPrice, closePrice, quoteVolume);
+                            KlineData kline = new KlineData(symbol, timestamp, openPrice, highPrice, lowPrice,
+                                    closePrice, quoteVolume);
                             klines.add(kline);
                         }
                     }
@@ -288,7 +290,7 @@ public class BinanceApiService {
             // 下一批从最后一条的时间之后开始
             KlineData lastKline = batch.get(batch.size() - 1);
             long lastTime = lastKline.getTimestamp()
-                    .atZone(ZoneId.systemDefault())
+                    .atZone(ZoneId.of("UTC"))
                     .toInstant()
                     .toEpochMilli();
 
@@ -323,7 +325,7 @@ public class BinanceApiService {
         if (isRateLimited()) {
             return null;
         }
-        
+
         try {
             // 获取最新的2根5分钟K线，取第一根（已闭合的那根）
             String url = String.format("%s/fapi/v1/klines?symbol=%s&interval=5m&limit=2",
@@ -333,20 +335,21 @@ public class BinanceApiService {
 
             try (Response response = httpClient.newCall(request).execute()) {
                 int code = response.code();
-                
+
                 // 检查是否被限流或封IP
                 if (code == 429 || code == 418) {
                     triggerRateLimit(code, symbol);
                     return null;
                 }
-                
+
                 if (response.isSuccessful() && response.body() != null) {
                     JsonNode root = objectMapper.readTree(response.body().string());
 
                     // 取第一根K线（已闭合的那根，而不是正在形成的第二根）
                     if (root.isArray() && root.size() >= 2) {
-                        JsonNode klineNode = root.get(0);  // 取第一根，已闭合
-                        // K线数据格式: [openTime, open, high, low, close, volume, closeTime, quoteVolume, ...]
+                        JsonNode klineNode = root.get(0); // 取第一根，已闭合
+                        // K线数据格式: [openTime, open, high, low, close, volume, closeTime, quoteVolume,
+                        // ...]
                         long openTime = klineNode.get(0).asLong();
                         double openPrice = klineNode.get(1).asDouble();
                         double highPrice = klineNode.get(2).asDouble();
@@ -357,7 +360,8 @@ public class BinanceApiService {
                         LocalDateTime timestamp = LocalDateTime.ofInstant(
                                 Instant.ofEpochMilli(openTime), ZoneId.of("UTC"));
 
-                        return new KlineData(symbol, timestamp, openPrice, highPrice, lowPrice, closePrice, quoteVolume);
+                        return new KlineData(symbol, timestamp, openPrice, highPrice, lowPrice, closePrice,
+                                quoteVolume);
                     }
                 }
             }

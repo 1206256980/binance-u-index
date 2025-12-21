@@ -503,7 +503,9 @@ public class IndexCalculatorService {
         }
 
         // 更新全局基准价格并保存到数据库
-        if (!historicalBasePrices.isEmpty()) {
+        // 注意：只有在数据库没有基准价格时才更新，避免增量回补覆盖原有基准价格
+        boolean basePricesWereLoaded = !existingBasePrices.isEmpty();
+        if (!historicalBasePrices.isEmpty() && !basePricesWereLoaded) {
             basePrices = new HashMap<>(historicalBasePrices);
             basePriceTime = LocalDateTime.now();
 
@@ -516,6 +518,8 @@ public class IndexCalculatorService {
                 log.info("基准价格已保存到数据库，共 {} 个币种", basePriceList.size());
             }
             log.info("基准价格设置完成，共 {} 个币种", basePrices.size());
+        } else if (basePricesWereLoaded) {
+            log.info("使用数据库中的基准价格，共 {} 个币种，不覆盖", basePrices.size());
         }
 
         // 计算每个时间点的指数
@@ -534,7 +538,7 @@ public class IndexCalculatorService {
         for (Map.Entry<Long, Map<String, KlineData>> entry : timeSeriesData.entrySet()) {
             LocalDateTime timestamp = LocalDateTime.ofInstant(
                     java.time.Instant.ofEpochMilli(entry.getKey()),
-                    ZoneId.systemDefault());
+                    ZoneId.of("UTC"));
 
             // 跳过已存在的数据（使用内存Set快速判断）
             if (existingIndexTimestamps.contains(timestamp)) {
@@ -601,7 +605,7 @@ public class IndexCalculatorService {
         for (Map.Entry<Long, Map<String, KlineData>> entry : timeSeriesData.entrySet()) {
             LocalDateTime timestamp = LocalDateTime.ofInstant(
                     java.time.Instant.ofEpochMilli(entry.getKey()),
-                    ZoneId.systemDefault());
+                    ZoneId.of("UTC"));
 
             // 跳过已有价格数据的时间点（使用内存Set快速判断）
             if (existingPriceTimestamps.contains(timestamp)) {
@@ -656,6 +660,38 @@ public class IndexCalculatorService {
      */
     public List<BasePrice> getAllBasePrices() {
         return basePriceRepository.findAll();
+    }
+
+    /**
+     * 删除指定时间范围内的数据（用于清理污染数据）
+     * 
+     * @param start 开始时间
+     * @param end   结束时间
+     * @return 删除结果信息
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> deleteDataInRange(LocalDateTime start, LocalDateTime end) {
+        Map<String, Object> result = new HashMap<>();
+
+        // 先统计要删除的数量
+        long indexCount = marketIndexRepository.countByTimestampBetween(start, end);
+        long priceCount = coinPriceRepository.findAllDistinctTimestampsBetween(start, end).size();
+
+        log.info("开始删除数据: {} -> {}", start, end);
+        log.info("将删除指数记录: {} 条, 价格时间点: {} 个", indexCount, priceCount);
+
+        // 删除数据
+        marketIndexRepository.deleteByTimestampBetween(start, end);
+        coinPriceRepository.deleteByTimestampBetween(start, end);
+
+        log.info("数据删除完成");
+
+        result.put("deletedIndexCount", indexCount);
+        result.put("deletedPriceTimePoints", priceCount);
+        result.put("startTime", start.toString());
+        result.put("endTime", end.toString());
+
+        return result;
     }
 
     /**

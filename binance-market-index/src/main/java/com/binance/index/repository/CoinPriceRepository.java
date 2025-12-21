@@ -92,4 +92,9 @@ public interface CoinPriceRepository extends JpaRepository<CoinPrice, Long> {
          */
         @Query("SELECT MAX(cp.timestamp) FROM CoinPrice cp")
         LocalDateTime findLatestTimestamp();
+
+        /**
+         * 删除指定时间范围内的数据
+         */
+        void deleteByTimestampBetween(LocalDateTime start, LocalDateTime end);
 }

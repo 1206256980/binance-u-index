@@ -236,4 +236,69 @@ public class IndexController {
 
         return ResponseEntity.ok(response);
     }
+
+    /**
+     * 删除指定时间范围内的数据（用于清理污染数据）
+     * 时间格式: yyyy-MM-dd HH:mm 或 yyyy-MM-ddTHH:mm:ss
+     * 示例: DELETE /api/index/data?start=2025-12-21 10:00&end=2025-12-21 10:30
+     */
+    @DeleteMapping("/data")
+    public ResponseEntity<Map<String, Object>> deleteDataInRange(
+            @RequestParam String start,
+            @RequestParam String end) {
+
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            // 解析时间，支持多种格式
+            java.time.LocalDateTime startTime = parseDateTime(start);
+            java.time.LocalDateTime endTime = parseDateTime(end);
+
+            // 验证时间范围
+            if (startTime.isAfter(endTime)) {
+                response.put("success", false);
+                response.put("message", "开始时间不能晚于结束时间");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            // 执行删除
+            Map<String, Object> result = indexCalculatorService.deleteDataInRange(startTime, endTime);
+
+            response.put("success", true);
+            response.put("message", "数据删除成功");
+            response.putAll(result);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "时间格式错误，请使用格式: yyyy-MM-dd HH:mm 或 yyyy-MM-ddTHH:mm:ss");
+            response.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * 解析时间字符串，支持多种格式
+     */
+    private java.time.LocalDateTime parseDateTime(String dateTimeStr) {
+        // 尝试多种格式
+        String[] patterns = {
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd HH:mm",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm"
+        };
+
+        for (String pattern : patterns) {
+            try {
+                java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern(pattern);
+                return java.time.LocalDateTime.parse(dateTimeStr, formatter);
+            } catch (Exception ignored) {
+            }
+        }
+
+        // 尝试 ISO 格式
+        return java.time.LocalDateTime.parse(dateTimeStr);
+    }
 }

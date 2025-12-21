@@ -54,4 +54,9 @@ public interface MarketIndexRepository extends JpaRepository<MarketIndex, Long> 
     @Query("SELECT m.timestamp FROM MarketIndex m WHERE m.timestamp >= :startTime AND m.timestamp <= :endTime")
     List<LocalDateTime> findAllTimestampsBetween(@Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 删除指定时间范围内的数据
+     */
+    void deleteByTimestampBetween(LocalDateTime start, LocalDateTime end);
 }
