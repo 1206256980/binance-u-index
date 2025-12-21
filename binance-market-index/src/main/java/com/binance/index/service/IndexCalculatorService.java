@@ -568,10 +568,11 @@ public class IndexCalculatorService {
 
         // 保存每个时间点的币种价格
         if (!existingPriceTimestamps.isEmpty()) {
-            LocalDateTime earliest = existingPriceTimestamps.stream().min(LocalDateTime::compareTo).orElse(null);
-            LocalDateTime latest = existingPriceTimestamps.stream().max(LocalDateTime::compareTo).orElse(null);
-            log.info("历史已有 {} 个时间点的价格数据，最早: {}，最晚: {}，将跳过这些时间点",
-                    existingPriceTimestamps.size(), earliest, latest);
+            // 查询数据库中全部价格数据的最早和最晚时间
+            LocalDateTime dbEarliest = coinPriceRepository.findEarliestTimestamp();
+            LocalDateTime dbLatest = coinPriceRepository.findLatestTimestamp();
+            log.info("数据库已有价格数据，最早: {}，最晚: {}，本次回补范围内有 {} 个时间点将跳过",
+                    dbEarliest, dbLatest, existingPriceTimestamps.size());
         }
         log.info("开始保存币种价格历史...");
         List<CoinPrice> allCoinPrices = new ArrayList<>();
