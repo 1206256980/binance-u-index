@@ -10,6 +10,32 @@ function IndexChart({ data }) {
         .filter(item => item.timestamp && item.indexValue !== null && item.indexValue !== undefined)
         .map(item => [item.timestamp, item.indexValue])
 
+    // 计算每天 00:00 的时间戳用于添加分割线
+    const midnightLines = []
+    if (chartData.length > 0) {
+        const startDate = new Date(chartData[0][0])
+        const endDate = new Date(chartData[chartData.length - 1][0])
+
+        // 从第一个完整的第二天开始
+        const nextDay = new Date(startDate)
+        nextDay.setHours(0, 0, 0, 0)
+        nextDay.setDate(nextDay.getDate() + 1)
+
+        while (nextDay <= endDate) {
+            midnightLines.push({
+                xAxis: nextDay.getTime(),
+                label: {
+                    show: true,
+                    formatter: `${nextDay.getMonth() + 1}/${nextDay.getDate()}`,
+                    color: '#64748b',
+                    fontSize: 10,
+                    position: 'start'
+                }
+            })
+            nextDay.setDate(nextDay.getDate() + 1)
+        }
+    }
+
     console.log('Chart data points:', chartData.length)
     if (chartData.length > 0) {
         console.log('First:', new Date(chartData[0][0]).toLocaleString(), chartData[0][1])
@@ -137,12 +163,15 @@ function IndexChart({ data }) {
                     silent: true,
                     symbol: 'none',
                     lineStyle: {
-                        color: '#64748b',
+                        color: 'rgba(100, 116, 139, 0.4)',
                         type: 'dashed',
                         width: 1
                     },
                     data: [
-                        { yAxis: 0, label: { show: true, formatter: '0%', color: '#64748b' } }
+                        // 0% 水平基准线
+                        { yAxis: 0, label: { show: true, formatter: '0%', color: '#64748b' } },
+                        // 每天 00:00 的垂直分割线
+                        ...midnightLines
                     ]
                 }
             }

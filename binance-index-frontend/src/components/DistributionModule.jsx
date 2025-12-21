@@ -316,7 +316,14 @@ function DistributionModule() {
                             </option>
                         ))}
                     </select>
-                    {loading && <span className="loading-text">加载中...</span>}
+                    <button
+                        className="refresh-btn"
+                        onClick={fetchDistribution}
+                        disabled={loading}
+                        title="刷新数据"
+                    >
+                        {loading ? '⏳' : '🔄'}
+                    </button>
                 </div>
             </div>
 
