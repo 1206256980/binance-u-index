@@ -75,10 +75,23 @@ function DistributionModule() {
         return () => clearInterval(interval)
     }, [silentRefresh])
 
-    // 复制币种名称
+    // 复制币种名称（支持 HTTP 环境的降级方案）
     const handleCopySymbol = async (symbol) => {
         try {
-            await navigator.clipboard.writeText(symbol)
+            // 优先使用现代 API
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(symbol)
+            } else {
+                // 降级方案：使用 textarea
+                const textArea = document.createElement('textarea')
+                textArea.value = symbol
+                textArea.style.position = 'fixed'
+                textArea.style.left = '-9999px'
+                document.body.appendChild(textArea)
+                textArea.select()
+                document.execCommand('copy')
+                document.body.removeChild(textArea)
+            }
             setCopiedSymbol(symbol)
             setTimeout(() => setCopiedSymbol(null), 1500)
         } catch (err) {
