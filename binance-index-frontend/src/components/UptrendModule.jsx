@@ -375,7 +375,7 @@ function UptrendModule() {
                                 className="time-input"
                                 value={startTime}
                                 onChange={(e) => setStartTime(e.target.value)}
-                                style={{ width: '160px', marginRight: '4px' }}
+                                style={{ width: '180px', marginRight: '4px' }}
                             />
                             <span style={{ color: '#94a3b8' }}>至</span>
                             <input
@@ -383,7 +383,7 @@ function UptrendModule() {
                                 className="time-input"
                                 value={endTime}
                                 onChange={(e) => setEndTime(e.target.value)}
-                                style={{ width: '160px', marginLeft: '4px' }}
+                                style={{ width: '180px', marginLeft: '4px' }}
                             />
                         </>
                     ) : (
