@@ -1298,21 +1298,16 @@ public class IndexCalculatorService {
             return null;
         }
 
-        log.info("找到 {} 个币种，开始计算单边涨幅...", symbols.size());
+        log.info("找到 {} 个币种，开始并行计算单边涨幅...", symbols.size());
 
-        // 计算每个币种的所有符合条件的波段
-        List<UptrendData.CoinUptrend> allWaves = new ArrayList<>();
-        int ongoingCount = 0;
+        // 使用并行流处理，提高计算效率
+        // parallelStream 会自动使用 ForkJoinPool，默认并发数为 CPU 核心数
+        List<UptrendData.CoinUptrend> allWaves = symbols.parallelStream()
+                .flatMap(symbol -> calculateSymbolAllWaves(symbol, alignedStart, alignedEnd, keepRatio, noNewHighCandles, minUptrend).stream())
+                .collect(java.util.stream.Collectors.toList());
 
-        for (String symbol : symbols) {
-            List<UptrendData.CoinUptrend> waves = calculateSymbolAllWaves(symbol, alignedStart, alignedEnd, keepRatio, noNewHighCandles, minUptrend);
-            allWaves.addAll(waves);
-            for (UptrendData.CoinUptrend wave : waves) {
-                if (wave.isOngoing()) {
-                    ongoingCount++;
-                }
-            }
-        }
+        // 统计进行中的波段数
+        int ongoingCount = (int) allWaves.stream().filter(UptrendData.CoinUptrend::isOngoing).count();
 
         if (allWaves.isEmpty()) {
             log.warn("没有有效的单边涨幅数据");
