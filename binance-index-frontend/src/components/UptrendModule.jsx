@@ -442,7 +442,7 @@ function UptrendModule() {
                 <div className={`chart-section ${isPanelOpen ? 'with-panel' : ''}`}>
                     <div className="section-title">
                         单边涨幅分布
-                        <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>(回调≥{pullbackThreshold}%视为波段结束)</span>
+                        <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>(保留{Math.round(keepRatio * 100)}%涨幅 或 横盘{noNewHighCandles}根K线 视为波段结束)</span>
                         {uptrendData && (
                             <button
                                 className="all-ranking-btn"
