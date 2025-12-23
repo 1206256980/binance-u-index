@@ -104,4 +104,22 @@ public interface CoinPriceRepository extends JpaRepository<CoinPrice, Long> {
          * 删除指定时间范围内的数据
          */
         void deleteByTimestampBetween(LocalDateTime start, LocalDateTime end);
+
+        /**
+         * 获取指定币种在时间范围内的所有K线数据（按时间升序，用于单边涨幅计算）
+         */
+        @Query("SELECT cp FROM CoinPrice cp WHERE cp.symbol = :symbol " +
+                        "AND cp.timestamp >= :startTime AND cp.timestamp <= :endTime " +
+                        "ORDER BY cp.timestamp ASC")
+        List<CoinPrice> findBySymbolInRangeOrderByTime(@Param("symbol") String symbol,
+                        @Param("startTime") LocalDateTime startTime,
+                        @Param("endTime") LocalDateTime endTime);
+
+        /**
+         * 获取时间范围内所有不重复的币种列表
+         */
+        @Query("SELECT DISTINCT cp.symbol FROM CoinPrice cp " +
+                        "WHERE cp.timestamp >= :startTime AND cp.timestamp <= :endTime")
+        List<String> findDistinctSymbolsInRange(@Param("startTime") LocalDateTime startTime,
+                        @Param("endTime") LocalDateTime endTime);
 }

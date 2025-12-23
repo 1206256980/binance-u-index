@@ -953,3 +953,110 @@ body {
     font-size: 0.75rem;
   }
 }
+
+/* ===== 单边上行涨幅模块专属样式 ===== */
+.uptrend-module .distribution-title {
+  color: var(--danger);
+}
+
+/* 阈值输入框 */
+.threshold-input {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+}
+
+.threshold-input:hover {
+  border-color: var(--danger);
+  background-color: var(--bg-card-hover);
+}
+
+.threshold-input:focus {
+  outline: none;
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+/* 只看进行中筛选 */
+.filter-ongoing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.filter-ongoing input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--warning);
+  cursor: pointer;
+}
+
+/* 单边涨幅排行项目样式 */
+.uptrend-item {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.uptrend-item:last-child {
+  border-bottom: none;
+}
+
+.uptrend-item .coin-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.uptrend-item .symbol {
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.uptrend-item .ongoing-badge {
+  font-size: 0.7rem;
+  padding: 2px 6px;
+  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+  color: white;
+  border-radius: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.uptrend-item .time-range {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.uptrend-item .uptrend-value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.uptrend-item .uptrend-value .percent {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.uptrend-item .uptrend-value .price-range {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}

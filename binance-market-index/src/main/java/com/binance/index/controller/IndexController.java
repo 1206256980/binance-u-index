@@ -2,6 +2,7 @@ package com.binance.index.controller;
 
 import com.binance.index.dto.DistributionData;
 import com.binance.index.dto.IndexDataPoint;
+import com.binance.index.dto.UptrendData;
 import com.binance.index.entity.MarketIndex;
 import com.binance.index.service.IndexCalculatorService;
 import org.springframework.http.ResponseEntity;
@@ -240,6 +241,91 @@ public class IndexController {
         } else {
             response.put("success", false);
             response.put("message", "获取分布数据失败");
+        }
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 获取单边上行涨幅分布数据
+     * 
+     * 支持两种模式：
+     * 1. 相对时间模式: hours=168&pullback=5 (表示从168小时前到现在，回调阈值5%)
+     * 2. 绝对时间模式: start=2024-12-12 10:05&end=2024-12-12 10:15&pullback=5
+     * 
+     * @param hours    相对基准时间（多少小时前），默认168小时（7天）
+     * @param pullback 回调阈值（百分比），默认5%
+     * @param start    开始时间，格式: yyyy-MM-dd HH:mm
+     * @param end      结束时间，格式: yyyy-MM-dd HH:mm
+     * @param timezone 输入时间的时区，默认 Asia/Shanghai
+     */
+    @GetMapping("/uptrend-distribution")
+    public ResponseEntity<Map<String, Object>> getUptrendDistribution(
+            @RequestParam(defaultValue = "168") double hours,
+            @RequestParam(defaultValue = "5") double pullback,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end,
+            @RequestParam(defaultValue = "Asia/Shanghai") String timezone) {
+
+        Map<String, Object> response = new HashMap<>();
+
+        // 如果提供了 start 和 end，使用绝对时间模式
+        if (start != null && end != null && !start.isEmpty() && !end.isEmpty()) {
+            try {
+                java.time.LocalDateTime startLocal = parseDateTime(start);
+                java.time.LocalDateTime endLocal = parseDateTime(end);
+
+                java.time.ZoneId userZone = java.time.ZoneId.of(timezone);
+                java.time.ZoneId utcZone = java.time.ZoneId.of("UTC");
+
+                java.time.LocalDateTime startUtc = startLocal.atZone(userZone).withZoneSameInstant(utcZone)
+                        .toLocalDateTime();
+                java.time.LocalDateTime endUtc = endLocal.atZone(userZone).withZoneSameInstant(utcZone)
+                        .toLocalDateTime();
+
+                if (startUtc.isAfter(endUtc)) {
+                    response.put("success", false);
+                    response.put("message", "开始时间不能晚于结束时间");
+                    return ResponseEntity.badRequest().body(response);
+                }
+
+                UptrendData data = indexCalculatorService.getUptrendDistributionByTimeRange(startUtc, endUtc, pullback);
+
+                if (data != null) {
+                    response.put("success", true);
+                    response.put("mode", "timeRange");
+                    response.put("pullback", pullback);
+                    response.put("inputTimezone", timezone);
+                    response.put("inputStart", start);
+                    response.put("inputEnd", end);
+                    response.put("data", data);
+                } else {
+                    response.put("success", false);
+                    response.put("message", "获取单边涨幅数据失败，可能指定时间范围内无数据");
+                }
+
+                return ResponseEntity.ok(response);
+
+            } catch (Exception e) {
+                response.put("success", false);
+                response.put("message", "时间格式错误，请使用格式: yyyy-MM-dd HH:mm");
+                response.put("error", e.getMessage());
+                return ResponseEntity.badRequest().body(response);
+            }
+        }
+
+        // 否则使用相对时间模式
+        UptrendData data = indexCalculatorService.getUptrendDistribution(hours, pullback);
+
+        if (data != null) {
+            response.put("success", true);
+            response.put("mode", "hours");
+            response.put("hours", hours);
+            response.put("pullback", pullback);
+            response.put("data", data);
+        } else {
+            response.put("success", false);
+            response.put("message", "获取单边涨幅数据失败");
         }
 
         return ResponseEntity.ok(response);
