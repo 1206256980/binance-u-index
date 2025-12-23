@@ -1378,14 +1378,16 @@ public class IndexCalculatorService {
         boolean inWave = false;
 
         for (CoinPrice price : prices) {
-            // 使用K线的高低价进行更精确的波段识别
+            // 使用K线的OHLC价格进行波段识别
+            double openPrice = price.getOpenPrice() != null ? price.getOpenPrice() : price.getPrice();
             double highPrice = price.getHighPrice() != null ? price.getHighPrice() : price.getPrice();
             double lowPrice = price.getLowPrice() != null ? price.getLowPrice() : price.getPrice();
+            double closePrice = price.getPrice(); // closePrice
             LocalDateTime timestamp = price.getTimestamp();
 
             if (!inWave) {
-                // 开始新波段
-                waveStartPrice = lowPrice;
+                // 开始新波段：使用开盘价作为起点（而不是最低价）
+                waveStartPrice = openPrice;
                 waveStartTime = timestamp;
                 wavePeakPrice = highPrice;
                 wavePeakTime = timestamp;
@@ -1397,8 +1399,8 @@ public class IndexCalculatorService {
                     wavePeakTime = timestamp;
                 }
 
-                // 检查回调幅度
-                double drawdown = wavePeakPrice > 0 ? (wavePeakPrice - lowPrice) / wavePeakPrice * 100 : 0;
+                // 检查回调幅度：使用收盘价判断（更稳定，避免影线干扰）
+                double drawdown = wavePeakPrice > 0 ? (wavePeakPrice - closePrice) / wavePeakPrice * 100 : 0;
 
                 if (drawdown >= pullbackThreshold) {
                     // 波段结束，计算涨幅
@@ -1406,8 +1408,8 @@ public class IndexCalculatorService {
                             ? (wavePeakPrice - waveStartPrice) / waveStartPrice * 100 
                             : 0;
 
-                    // 更新最大涨幅记录
-                    if (uptrendPercent > maxUptrendPercent) {
+                    // 只记录正向涨幅（过滤掉实际是下跌的情况）
+                    if (uptrendPercent > 0 && uptrendPercent > maxUptrendPercent) {
                         maxUptrendPercent = uptrendPercent;
                         maxWaveStartPrice = waveStartPrice;
                         maxWavePeakPrice = wavePeakPrice;
@@ -1416,10 +1418,10 @@ public class IndexCalculatorService {
                         maxWaveOngoing = false;
                     }
 
-                    // 以回调低点开始新波段
-                    waveStartPrice = lowPrice;
+                    // 以当前收盘价开始新波段
+                    waveStartPrice = closePrice;
                     waveStartTime = timestamp;
-                    wavePeakPrice = highPrice;
+                    wavePeakPrice = closePrice; // 新波段从当前位置开始
                     wavePeakTime = timestamp;
                 }
             }
@@ -1429,16 +1431,14 @@ public class IndexCalculatorService {
         if (inWave && waveStartPrice > 0) {
             double uptrendPercent = (wavePeakPrice - waveStartPrice) / waveStartPrice * 100;
 
-            if (uptrendPercent > maxUptrendPercent) {
+            // 只记录正向涨幅
+            if (uptrendPercent > 0 && uptrendPercent > maxUptrendPercent) {
                 maxUptrendPercent = uptrendPercent;
                 maxWaveStartPrice = waveStartPrice;
                 maxWavePeakPrice = wavePeakPrice;
                 maxWaveStartTime = waveStartTime;
                 maxWavePeakTime = wavePeakTime;
                 maxWaveOngoing = true; // 最后一波是进行中的
-            } else if (Math.abs(uptrendPercent - maxUptrendPercent) < 0.01 && maxWaveOngoing == false) {
-                // 如果最后一波涨幅接近最大，标记为进行中
-                // 这处理了"最大波段恰好是最后一个"的情况
             }
         }
 

@@ -408,9 +408,9 @@ function UptrendModule() {
                                 <button
                                     className="sort-order-btn"
                                     onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                                    title={sortOrder === 'desc' ? '降序' : '升序'}
+                                    title={sortOrder === 'desc' ? '当前：降序，点击切换升序' : '当前：升序，点击切换降序'}
                                 >
-                                    {sortOrder === 'desc' ? '↓ 降序' : '↑ 升序'}
+                                    {sortOrder === 'desc' ? '↓' : '↑'}
                                 </button>
                             </div>
                             <div className="ranking-list">
