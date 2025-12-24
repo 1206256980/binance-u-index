@@ -123,6 +123,31 @@ function UptrendModule() {
         localStorage.setItem('uptrend_winRate', JSON.stringify(winRate))
     }, [winRate])
 
+    // 重置所有设置为默认值并清除缓存
+    const resetToDefaults = () => {
+        // 清除所有缓存
+        const keys = ['timeBase', 'useCustomTime', 'startTime', 'endTime', 'keepRatio',
+            'noNewHighCandles', 'minUptrend', 'timeChartThreshold', 'winRate']
+        keys.forEach(key => localStorage.removeItem(`uptrend_${key}`))
+
+        // 恢复默认值
+        setTimeBase(24)
+        setUseCustomTime(false)
+        setStartTime('')
+        setEndTime('')
+        setKeepRatio(0.75)
+        setInputKeepRatio('75')
+        setNoNewHighCandles(6)
+        setInputNoNewHighCandles('6')
+        setMinUptrend(4)
+        setInputMinUptrend('4')
+        setTimeChartThreshold(10)
+        setInputTimeChartThreshold('10')
+        setWinRate(90)
+        setInputWinRate('90')
+    }
+
+
     // 获取数据 (silent: 静默刷新，不显示loading，不重置选择状态)
     const fetchData = useCallback(async (silent = false) => {
         if (!silent) {
@@ -971,6 +996,14 @@ function UptrendModule() {
                         style={{ marginLeft: '12px' }}
                     >
                         {loading ? '⏳' : '🔄'}
+                    </button>
+                    <button
+                        className="reset-btn"
+                        onClick={resetToDefaults}
+                        title="重置为默认设置"
+                        style={{ marginLeft: '4px' }}
+                    >
+                        ↺
                     </button>
                 </div>
             </div>
