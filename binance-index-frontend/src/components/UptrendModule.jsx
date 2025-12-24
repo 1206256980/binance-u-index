@@ -44,7 +44,11 @@ function UptrendModule() {
     const [filterOngoing, setFilterOngoing] = useState(false) // 只看进行中
     const [selectedSymbol, setSelectedSymbol] = useState(null) // 选中的币种（查看详情）
     const [searchSymbol, setSearchSymbol] = useState('') // 搜索币种
+    const [timeChartThreshold, setTimeChartThreshold] = useState(10) // 时间图表涨幅阈值，默认10%
+    const [inputTimeChartThreshold, setInputTimeChartThreshold] = useState('10')
+    const [selectedTimeBucket, setSelectedTimeBucket] = useState(null) // 选中的时间桶
     const chartRef = useRef(null)
+    const timeChartRef = useRef(null)
 
     // 获取数据
     const fetchData = useCallback(async () => {
@@ -177,6 +181,25 @@ function UptrendModule() {
         setSelectedBucket(null)
         setShowAllRanking(false)
         setSelectedSymbol(null)
+        setSelectedTimeBucket(null)
+    }
+
+    // 处理时间图表涨幅阈值输入
+    const handleTimeChartThresholdChange = (e) => {
+        setInputTimeChartThreshold(e.target.value)
+    }
+
+    const applyTimeChartThreshold = () => {
+        const val = parseFloat(inputTimeChartThreshold)
+        if (!isNaN(val) && val >= 0 && val <= 100) {
+            setTimeChartThreshold(val)
+        } else {
+            setInputTimeChartThreshold(String(timeChartThreshold))
+        }
+    }
+
+    const handleTimeChartThresholdKeyDown = (e) => {
+        if (e.key === 'Enter') applyTimeChartThreshold()
     }
 
     // 搜索币种
@@ -356,6 +379,13 @@ function UptrendModule() {
                 return sortOrder === 'desc'
                     ? b.waveStartTime - a.waveStartTime
                     : a.waveStartTime - b.waveStartTime
+            } else if (sortBy === 'duration') {
+                // 按波段持续时间排序
+                const aDuration = (a.waveEndTime || 0) - (a.waveStartTime || 0)
+                const bDuration = (b.waveEndTime || 0) - (b.waveStartTime || 0)
+                return sortOrder === 'desc'
+                    ? bDuration - aDuration
+                    : aDuration - bDuration
             } else {
                 // 按涨幅排序
                 return sortOrder === 'desc'
@@ -390,11 +420,267 @@ function UptrendModule() {
                 coins: sortCoins(selectedBucket.coins)
             }
         }
+        // 时间桶选中
+        if (selectedTimeBucket) {
+            return {
+                title: `${selectedTimeBucket.label} 启动的波段`,
+                subtitle: `${selectedTimeBucket.count} 个波段`,
+                coins: sortCoins(selectedTimeBucket.coins)
+            }
+        }
         return null
     }
 
+    // 计算时间分布数据
+    const getTimeDistributionData = () => {
+        if (!uptrendData?.allCoinsRanking) return null
+
+        // 过滤符合阈值的波段
+        const filteredWaves = uptrendData.allCoinsRanking.filter(
+            c => c.uptrendPercent >= timeChartThreshold
+        )
+
+        if (filteredWaves.length === 0) return null
+
+        // 获取时间范围
+        const minTime = Math.min(...filteredWaves.map(c => c.waveStartTime))
+        const maxTime = Math.max(...filteredWaves.map(c => c.waveStartTime))
+        const rangeHours = (maxTime - minTime) / (1000 * 60 * 60)
+
+        // 根据时间范围自动确定粒度
+        let bucketSizeMs
+        let bucketLabel
+        if (rangeHours <= 6) {
+            bucketSizeMs = 30 * 60 * 1000 // 30分钟
+            bucketLabel = '30分钟'
+        } else if (rangeHours <= 24) {
+            bucketSizeMs = 60 * 60 * 1000 // 1小时
+            bucketLabel = '1小时'
+        } else if (rangeHours <= 72) {
+            bucketSizeMs = 2 * 60 * 60 * 1000 // 2小时
+            bucketLabel = '2小时'
+        } else if (rangeHours <= 168) {
+            bucketSizeMs = 4 * 60 * 60 * 1000 // 4小时
+            bucketLabel = '4小时'
+        } else {
+            bucketSizeMs = 12 * 60 * 60 * 1000 // 12小时
+            bucketLabel = '12小时'
+        }
+
+        // 对齐起始时间
+        const alignedMin = Math.floor(minTime / bucketSizeMs) * bucketSizeMs
+        const alignedMax = Math.ceil(maxTime / bucketSizeMs) * bucketSizeMs
+
+        // 创建时间桶
+        const buckets = []
+        for (let t = alignedMin; t < alignedMax; t += bucketSizeMs) {
+            const bucketStart = t
+            const bucketEnd = t + bucketSizeMs
+            const wavesInBucket = filteredWaves.filter(
+                c => c.waveStartTime >= bucketStart && c.waveStartTime < bucketEnd
+            )
+
+            const date = new Date(bucketStart)
+            const pad = (n) => String(n).padStart(2, '0')
+            let label
+            if (bucketSizeMs >= 12 * 60 * 60 * 1000) {
+                label = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:00`
+            } else {
+                label = `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+            }
+
+            buckets.push({
+                label,
+                startTime: bucketStart,
+                endTime: bucketEnd,
+                count: wavesInBucket.length,
+                ongoingCount: wavesInBucket.filter(c => c.ongoing).length,
+                coins: wavesInBucket
+            })
+        }
+
+        // 计算用时统计（从 waveStartTime 到 waveEndTime）
+        const durations = filteredWaves
+            .filter(c => c.waveEndTime && c.waveStartTime)
+            .map(c => c.waveEndTime - c.waveStartTime)
+
+        const avgDurationMs = durations.length > 0
+            ? durations.reduce((a, b) => a + b, 0) / durations.length
+            : 0
+        const maxDurationMs = durations.length > 0
+            ? Math.max(...durations)
+            : 0
+
+        // 格式化用时
+        const formatDuration = (ms) => {
+            const hours = Math.floor(ms / (1000 * 60 * 60))
+            const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60))
+            if (hours >= 24) {
+                const days = Math.floor(hours / 24)
+                const remainHours = hours % 24
+                return `${days}天${remainHours}时`
+            }
+            return hours > 0 ? `${hours}时${minutes}分` : `${minutes}分钟`
+        }
+
+        // 计算平均涨幅
+        const avgUptrend = filteredWaves.reduce((sum, c) => sum + c.uptrendPercent, 0) / filteredWaves.length
+
+        // 找出最热时段
+        let hottestBucket = buckets[0]
+        buckets.forEach(b => {
+            if (b.count > hottestBucket.count) {
+                hottestBucket = b
+            }
+        })
+
+        return {
+            buckets,
+            bucketLabel,
+            totalWaves: filteredWaves.length,
+            avgDuration: formatDuration(avgDurationMs),
+            maxDuration: formatDuration(maxDurationMs),
+            avgUptrend: avgUptrend.toFixed(1),
+            hottestPeriod: hottestBucket?.label || '--',
+            hottestCount: hottestBucket?.count || 0,
+            ongoingTotal: filteredWaves.filter(c => c.ongoing).length
+        }
+    }
+
+    // 时间分布图表配置
+    const getTimeDistributionOption = () => {
+        const data = getTimeDistributionData()
+        if (!data) return {}
+
+        const { buckets } = data
+        const labels = buckets.map(b => b.label)
+        const counts = buckets.map(b => b.count)
+        const ongoingCounts = buckets.map(b => b.ongoingCount)
+
+        return {
+            backgroundColor: 'transparent',
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'shadow' },
+                backgroundColor: 'rgba(22, 27, 34, 0.95)',
+                borderColor: 'rgba(16, 185, 129, 0.3)',
+                textStyle: { color: '#f1f5f9' },
+                formatter: function (params) {
+                    if (!params || params.length === 0) return ''
+                    const param = params[0]
+                    const bucket = buckets[param.dataIndex]
+                    if (!bucket || bucket.count === 0) {
+                        return `<div style="padding: 8px;">
+                            <div style="font-weight: 600;">${bucket.label}</div>
+                            <div style="color: #94a3b8;">该时段暂无波段启动</div>
+                        </div>`
+                    }
+                    let html = `<div style="padding: 8px; max-width: 320px;">
+                        <div style="font-weight: 600; margin-bottom: 8px; color: #10b981;">🕐 ${bucket.label}</div>
+                        <div>波段数: <span style="color: #10b981; font-weight: 600;">${bucket.count}</span></div>
+                        <div>进行中: <span style="color: #f59e0b; font-weight: 600;">${bucket.ongoingCount || 0}</span></div>`
+                    if (bucket.coins && bucket.coins.length > 0) {
+                        const displayCoins = bucket.coins.slice(0, 8)
+                        const moreCount = bucket.coins.length - 8
+                        let coinsHtml = '<div style="margin-top: 6px; font-size: 11px; color: #94a3b8;">'
+                        displayCoins.forEach(coin => {
+                            const ongoingMark = coin.ongoing ? '🔴' : ''
+                            coinsHtml += `<div style="margin: 2px 0;">${coin.symbol} ${ongoingMark} +${coin.uptrendPercent.toFixed(1)}%</div>`
+                        })
+                        if (moreCount > 0) {
+                            coinsHtml += `<div style="margin-top: 4px; color: #64748b;">等 ${moreCount} 个...</div>`
+                        }
+                        coinsHtml += '</div>'
+                        html += coinsHtml
+                    }
+                    html += '<div style="font-size: 11px; color: #10b981; margin-top: 6px; font-weight: 500;">👆 点击查看完整列表</div>'
+                    html += '</div>'
+                    return html
+                }
+            },
+            legend: {
+                show: true,
+                data: ['总数', '进行中'],
+                textStyle: { color: '#94a3b8', fontSize: 11 },
+                top: 5,
+                right: 10
+            },
+            grid: {
+                left: '3%',
+                right: '4%',
+                top: '15%',
+                bottom: '18%',
+                containLabel: true
+            },
+            xAxis: {
+                type: 'category',
+                data: labels,
+                axisLabel: {
+                    color: '#64748b',
+                    rotate: 30,
+                    fontSize: 10
+                },
+                axisLine: { lineStyle: { color: 'rgba(100, 116, 139, 0.2)' } },
+                triggerEvent: true
+            },
+            yAxis: {
+                type: 'value',
+                name: '波段数',
+                nameTextStyle: { color: '#64748b' },
+                axisLabel: { color: '#64748b' },
+                splitLine: { lineStyle: { color: 'rgba(100, 116, 139, 0.1)' } }
+            },
+            series: [
+                {
+                    name: '总数',
+                    type: 'bar',
+                    data: counts.map((count) => ({
+                        value: count === 0 ? null : count,
+                        itemStyle: {
+                            color: '#10b981',
+                            cursor: count > 0 ? 'pointer' : 'default'
+                        }
+                    })),
+                    barWidth: '50%',
+                    barMinHeight: 8
+                },
+                {
+                    name: '进行中',
+                    type: 'bar',
+                    data: ongoingCounts.map((count) => ({
+                        value: count === 0 ? null : count,
+                        itemStyle: {
+                            color: '#f59e0b',
+                            cursor: count > 0 ? 'pointer' : 'default'
+                        }
+                    })),
+                    barWidth: '50%',
+                    barMinHeight: 8
+                }
+            ]
+        }
+    }
+
+    // 时间图表点击事件
+    const onTimeChartClick = (params) => {
+        const data = getTimeDistributionData()
+        if (!data) return
+
+        let dataIndex = params.dataIndex
+        if (dataIndex !== undefined && dataIndex !== null) {
+            const bucket = data.buckets[dataIndex]
+            if (bucket && bucket.count > 0) {
+                setSelectedSymbol(null)
+                setSelectedBucket(null)
+                setShowAllRanking(false)
+                setSelectedTimeBucket(bucket)
+            }
+        }
+    }
+
     const rankingData = getRankingData()
-    const isPanelOpen = showAllRanking || selectedBucket || selectedSymbol
+    const isPanelOpen = showAllRanking || selectedBucket || selectedSymbol || selectedTimeBucket
+    const timeDistData = getTimeDistributionData()
 
     return (
         <div className="distribution-module uptrend-module">
@@ -572,6 +858,77 @@ function UptrendModule() {
                     ) : (
                         <div className="chart-loading">加载中...</div>
                     )}
+
+                    {/* 波段启动时间分布图表 */}
+                    <div className="section-title" style={{ marginTop: '20px' }}>
+                        波段启动时间分布
+                        <span style={{ fontSize: '12px', color: '#64748b', marginLeft: '8px' }}>
+                            (涨幅≥{timeChartThreshold}% 的波段)
+                        </span>
+                        <span className="label" style={{ marginLeft: '12px' }}>阈值:</span>
+                        <input
+                            type="text"
+                            className="threshold-input"
+                            value={inputTimeChartThreshold}
+                            onChange={handleTimeChartThresholdChange}
+                            onBlur={applyTimeChartThreshold}
+                            onKeyDown={handleTimeChartThresholdKeyDown}
+                            style={{ width: '45px', textAlign: 'center', marginLeft: '4px' }}
+                            title="只统计涨幅大于此值的波段"
+                        />
+                        <span style={{ color: '#94a3b8', marginLeft: '2px' }}>%</span>
+                        {timeDistData && (
+                            <span style={{ marginLeft: '12px', fontSize: '12px', color: '#10b981' }}>
+                                共 {timeDistData.totalWaves} 个波段，粒度: {timeDistData.bucketLabel}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* 时间分布统计卡片 */}
+                    {timeDistData && (
+                        <div className="distribution-stats" style={{ marginTop: '12px', marginBottom: '12px' }}>
+                            <div className="stat-item" style={{ borderLeft: '3px solid #10b981' }}>
+                                <span className="icon">📊</span>
+                                <span className="label">波段总数</span>
+                                <span className="value" style={{ color: '#10b981' }}>{timeDistData.totalWaves}</span>
+                            </div>
+                            <div className="stat-item" style={{ borderLeft: '3px solid #6366f1' }}>
+                                <span className="icon">⏱️</span>
+                                <span className="label">平均用时</span>
+                                <span className="value" style={{ color: '#6366f1' }}>{timeDistData.avgDuration}</span>
+                            </div>
+                            <div className="stat-item" style={{ borderLeft: '3px solid #8b5cf6' }}>
+                                <span className="icon">🏆</span>
+                                <span className="label">最长用时</span>
+                                <span className="value" style={{ color: '#8b5cf6' }}>{timeDistData.maxDuration}</span>
+                            </div>
+                            <div className="stat-item" style={{ borderLeft: '3px solid #ef4444' }}>
+                                <span className="icon">📈</span>
+                                <span className="label">平均涨幅</span>
+                                <span className="value" style={{ color: '#ef4444' }}>+{timeDistData.avgUptrend}%</span>
+                            </div>
+                            <div className="stat-item" style={{ borderLeft: '3px solid #f59e0b' }}>
+                                <span className="icon">🔥</span>
+                                <span className="label">最热时段</span>
+                                <span className="value" style={{ color: '#f59e0b', fontSize: '0.85rem' }}>{timeDistData.hottestPeriod}</span>
+                                <span className="percent">({timeDistData.hottestCount}个)</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {timeDistData ? (
+                        <ReactECharts
+                            ref={timeChartRef}
+                            option={getTimeDistributionOption()}
+                            style={{ height: '280px', width: '100%' }}
+                            opts={{ renderer: 'canvas' }}
+                            onEvents={{ click: onTimeChartClick }}
+                        />
+                    ) : (
+                        <div className="chart-loading" style={{ height: '100px' }}>
+                            {uptrendData ? `暂无涨幅≥${timeChartThreshold}%的波段` : '加载中...'}
+                        </div>
+                    )}
                 </div>
 
                 {/* 遮罩层 */}
@@ -626,6 +983,13 @@ function UptrendModule() {
                                         title="按波段开始时间排序"
                                     >
                                         🕐时间
+                                    </button>
+                                    <button
+                                        className={`sort-type-btn ${sortBy === 'duration' ? 'active' : ''}`}
+                                        onClick={() => setSortBy('duration')}
+                                        title="按波段持续时间排序"
+                                    >
+                                        ⏱️用时
                                     </button>
                                 </div>
                                 <button
