@@ -23,6 +23,27 @@ const formatTimestamp = (ts) => {
     return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+// 格式化用时（毫秒 -> 可读格式）
+const formatDuration = (startTs, endTs) => {
+    if (!startTs || !endTs) return '--'
+    const ms = endTs - startTs
+    if (ms <= 0) return '--'
+
+    const minutes = Math.floor(ms / (1000 * 60))
+    const hours = Math.floor(minutes / 60)
+    const days = Math.floor(hours / 24)
+
+    if (days >= 1) {
+        const remainHours = hours % 24
+        return `${days}天${remainHours}时`
+    } else if (hours >= 1) {
+        const remainMinutes = minutes % 60
+        return `${hours}时${remainMinutes}分`
+    } else {
+        return `${minutes}分钟`
+    }
+}
+
 function UptrendModule() {
     const [timeBase, setTimeBase] = useState(24) // 默认24小时
     const [useCustomTime, setUseCustomTime] = useState(false) // 是否使用自定义时间
@@ -1014,6 +1035,7 @@ function UptrendModule() {
                                             </span>
                                             <span className="time-range">
                                                 {formatTimestamp(coin.waveStartTime)} → {formatTimestamp(coin.waveEndTime)}
+                                                <span className="duration-badge">⏱{formatDuration(coin.waveStartTime, coin.waveEndTime)}</span>
                                             </span>
                                         </div>
                                         <div className="uptrend-value">
