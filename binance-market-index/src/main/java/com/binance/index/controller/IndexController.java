@@ -361,6 +361,10 @@ public class IndexController {
         response.put("data", prices.stream().map(p -> {
             Map<String, Object> item = new HashMap<>();
             item.put("timestamp", p.getTimestamp().toString());
+            // 添加东八区时间字段
+            java.time.ZonedDateTime cnTime = p.getTimestamp().atZone(java.time.ZoneId.of("UTC"))
+                    .withZoneSameInstant(java.time.ZoneId.of("Asia/Shanghai"));
+            item.put("timestampCN", cnTime.toLocalDateTime().toString());
             item.put("openPrice", p.getOpenPrice());
             item.put("highPrice", p.getHighPrice());
             item.put("lowPrice", p.getLowPrice());
