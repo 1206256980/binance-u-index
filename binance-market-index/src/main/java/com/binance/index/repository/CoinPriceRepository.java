@@ -122,4 +122,14 @@ public interface CoinPriceRepository extends JpaRepository<CoinPrice, Long> {
                         "WHERE cp.timestamp >= :startTime AND cp.timestamp <= :endTime")
         List<String> findDistinctSymbolsInRange(@Param("startTime") LocalDateTime startTime,
                         @Param("endTime") LocalDateTime endTime);
+
+        /**
+         * 按币种删除所有历史价格（用于清理下架币种）
+         */
+        void deleteBySymbol(String symbol);
+
+        /**
+         * 统计指定币种的记录数（用于日志输出删除了多少条）
+         */
+        long countBySymbol(String symbol);
 }

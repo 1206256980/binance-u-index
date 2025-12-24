@@ -469,6 +469,67 @@ public class IndexController {
     }
 
     /**
+     * 删除指定币种的所有数据（包括历史价格和基准价格）
+     * 用于手动清理问题币种的数据
+     * 
+     * 示例: DELETE /api/index/symbol/XXXUSDT
+     * 
+     * @param symbol 币种符号，如 SOLUSDT
+     */
+    @DeleteMapping("/symbol/{symbol}")
+    public ResponseEntity<Map<String, Object>> deleteSymbolData(@PathVariable String symbol) {
+        Map<String, Object> response = new HashMap<>();
+
+        if (symbol == null || symbol.isEmpty()) {
+            response.put("success", false);
+            response.put("message", "币种符号不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        try {
+            Map<String, Object> result = indexCalculatorService.deleteSymbolData(symbol.toUpperCase());
+            response.put("success", true);
+            response.put("message", "币种数据删除成功");
+            response.putAll(result);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "删除失败: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 修复所有币种的历史价格缺失数据
+     * 检测每个币种在指定时间范围内的数据缺口，并从币安API回补
+     * 
+     * 示例: POST /api/index/repair?days=7
+     * 
+     * @param days 检查最近多少天的数据，默认7天
+     */
+    @PostMapping("/repair")
+    public ResponseEntity<Map<String, Object>> repairMissingData(
+            @RequestParam(defaultValue = "7") int days) {
+        
+        Map<String, Object> response = new HashMap<>();
+
+        if (days <= 0 || days > 30) {
+            response.put("success", false);
+            response.put("message", "days 参数必须在 1-30 之间");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        try {
+            Map<String, Object> result = indexCalculatorService.repairMissingPriceData(days);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "修复失败: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
      * 解析时间字符串，支持多种格式
      */
     private java.time.LocalDateTime parseDateTime(String dateTimeStr) {

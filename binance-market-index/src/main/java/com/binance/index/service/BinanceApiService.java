@@ -99,7 +99,7 @@ public class BinanceApiService {
     }
 
     /**
-     * 获取所有U本位合约交易对（从ticker/24hr接口获取，过滤USDT并排除配置的币种）
+     * 获取所有U本位永续合约交易对（从exchangeInfo接口获取，只返回正在交易的永续合约）
      */
     public List<String> getAllUsdtSymbols() {
         List<String> symbols = new ArrayList<>();
@@ -110,7 +110,7 @@ public class BinanceApiService {
         }
 
         try {
-            String url = baseUrl + "/fapi/v1/ticker/24hr";
+            String url = baseUrl + "/fapi/v1/exchangeInfo";
             Request request = new Request.Builder().url(url).get().build();
 
             try (Response response = httpClient.newCall(request).execute()) {
@@ -124,13 +124,25 @@ public class BinanceApiService {
 
                 if (response.isSuccessful() && response.body() != null) {
                     JsonNode root = objectMapper.readTree(response.body().string());
+                    JsonNode symbolsNode = root.get("symbols");
 
-                    if (root.isArray()) {
-                        for (JsonNode tickerNode : root) {
-                            String symbol = tickerNode.get("symbol").asText();
+                    if (symbolsNode != null && symbolsNode.isArray()) {
+                        for (JsonNode symbolNode : symbolsNode) {
+                            String symbol = symbolNode.get("symbol").asText();
+                            String status = symbolNode.get("status").asText();
+                            String contractType = symbolNode.has("contractType") ? 
+                                    symbolNode.get("contractType").asText() : "";
+                            String quoteAsset = symbolNode.has("quoteAsset") ? 
+                                    symbolNode.get("quoteAsset").asText() : "";
 
-                            // 只保留USDT交易对
-                            if (!symbol.endsWith("USDT")) {
+                            // 只要正在交易的、永续合约、USDT结算的
+                            if (!"TRADING".equals(status)) {
+                                continue;
+                            }
+                            if (!"PERPETUAL".equals(contractType)) {
+                                continue;
+                            }
+                            if (!"USDT".equals(quoteAsset)) {
                                 continue;
                             }
 
@@ -144,7 +156,7 @@ public class BinanceApiService {
                     }
                 }
             }
-            log.info("获取到 {} 个U本位交易对（已排除 {}）", symbols.size(), getExcludeSymbols());
+            log.info("获取到 {} 个U本位永续合约（已排除 {}）", symbols.size(), getExcludeSymbols());
         } catch (Exception e) {
             log.error("获取交易对列表失败: {}", e.getMessage());
         }

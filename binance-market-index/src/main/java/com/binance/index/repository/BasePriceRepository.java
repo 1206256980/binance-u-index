@@ -10,4 +10,9 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface BasePriceRepository extends JpaRepository<BasePrice, String> {
     // 使用默认方法：findAll(), saveAll(), existsById(), count()
+    
+    /**
+     * 按币种删除基准价格（用于清理下架币种）
+     */
+    void deleteBySymbol(String symbol);
 }

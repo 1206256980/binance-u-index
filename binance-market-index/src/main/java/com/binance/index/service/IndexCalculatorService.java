@@ -86,6 +86,47 @@ public class IndexCalculatorService {
     }
 
     /**
+     * 清理下架币种的基准价格（只删除基准价格，保留历史数据用于涨幅分布和单边分析）
+     * 当币种重新上架时，会被当作新币处理，重新设置基准价格
+     * 
+     * @param activeSymbols 当前正在交易的币种列表（从exchangeInfo获取）
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void cleanupDelistedCoins(Set<String> activeSymbols) {
+        if (activeSymbols == null || activeSymbols.isEmpty()) {
+            return;
+        }
+
+        // 获取数据库中已存储的所有币种基准价格
+        Set<String> storedSymbols = basePriceRepository.findAll()
+                .stream()
+                .map(BasePrice::getSymbol)
+                .collect(Collectors.toSet());
+
+        // 求差集：数据库有但API没返回的 = 已下架
+        Set<String> delistedSymbols = new HashSet<>(storedSymbols);
+        delistedSymbols.removeAll(activeSymbols);
+
+        if (delistedSymbols.isEmpty()) {
+            return;
+        }
+
+        log.warn("检测到 {} 个币种已下架，清理基准价格（保留历史数据）: {}", delistedSymbols.size(), delistedSymbols);
+
+        for (String symbol : delistedSymbols) {
+            // 只删除基准价格（不删除历史价格，保留用于涨幅分布和单边分析）
+            basePriceRepository.deleteBySymbol(symbol);
+
+            // 清理内存缓存
+            basePrices.remove(symbol);
+
+            log.warn("已清理下架币种 {} 的基准价格（历史数据已保留），重新上架时将重新设置基准价格", symbol);
+        }
+
+        log.warn("下架币种基准价格清理完成，共清理 {} 个币种", delistedSymbols.size());
+    }
+
+    /**
      * 计算并保存当前时刻的市场指数（实时采集用）
      * 使用并发获取K线数据，获取准确的5分钟成交额
      */
@@ -113,6 +154,9 @@ public class IndexCalculatorService {
             log.warn("无法获取交易对列表");
             return null;
         }
+
+        // 清理已下架币种的数据（对比当前活跃币种和数据库中的币种）
+        cleanupDelistedCoins(new HashSet<>(symbols));
 
         log.info("开始并发获取 {} 个币种的K线数据...", symbols.size());
         long startTime = System.currentTimeMillis();
@@ -819,6 +863,211 @@ public class IndexCalculatorService {
         result.put("endTime", end.toString());
 
         return result;
+    }
+
+    /**
+     * 删除指定币种的所有数据（包括历史价格和基准价格）
+     * 
+     * @param symbol 币种符号，如 SOLUSDT
+     * @return 删除结果信息
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> deleteSymbolData(String symbol) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("symbol", symbol);
+
+        // 统计要删除的记录数
+        long priceCount = coinPriceRepository.countBySymbol(symbol);
+        boolean hasBasePrice = basePrices.containsKey(symbol) || basePriceRepository.existsById(symbol);
+
+        // 删除历史价格
+        coinPriceRepository.deleteBySymbol(symbol);
+
+        // 删除基准价格
+        basePriceRepository.deleteBySymbol(symbol);
+
+        // 清理内存缓存
+        basePrices.remove(symbol);
+
+        log.warn("已删除币种 {} 的所有数据: 历史价格 {} 条, 基准价格 {} 条, 已从内存缓存移除",
+                symbol, priceCount, hasBasePrice ? 1 : 0);
+
+        result.put("deletedPriceCount", priceCount);
+        result.put("deletedBasePrice", hasBasePrice);
+        result.put("success", true);
+
+        return result;
+    }
+
+    /**
+     * 修复所有币种的历史价格缺失数据
+     * 检测每个币种在指定时间范围内的数据缺口，并从币安API回补
+     * 
+     * @param days 检查最近多少天的数据，默认7天
+     * @return 修复结果详情
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> repairMissingPriceData(int days) {
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> repairedSymbols = new ArrayList<>();
+        
+        log.info("开始检测并修复最近 {} 天的历史价格缺失数据...", days);
+        
+        // 计算时间范围
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        LocalDateTime startTime = now.minusDays(days);
+        LocalDateTime endTime = alignToFiveMinutes(now).minusMinutes(5); // 最新闭合K线
+        
+        // 获取当前活跃的所有币种
+        List<String> activeSymbols = binanceApiService.getAllUsdtSymbols();
+        if (activeSymbols.isEmpty()) {
+            result.put("success", false);
+            result.put("message", "无法获取活跃币种列表");
+            return result;
+        }
+        
+        log.info("检查 {} 个活跃币种的历史数据完整性...", activeSymbols.size());
+        
+        int totalRepairedRecords = 0;
+        int checkedSymbols = 0;
+        
+        for (String symbol : activeSymbols) {
+            checkedSymbols++;
+            
+            // 获取该币种在时间范围内已有的所有时间戳
+            List<LocalDateTime> existingTimestamps = coinPriceRepository.findAllDistinctTimestampsBetween(startTime, endTime)
+                    .stream()
+                    .filter(ts -> {
+                        // 检查该时间点是否有这个币种的数据
+                        return coinPriceRepository.findBySymbolInRangeOrderByTime(symbol, ts, ts).size() > 0;
+                    })
+                    .collect(Collectors.toList());
+            
+            // 计算期望的时间点数量
+            long expectedCount = java.time.temporal.ChronoUnit.MINUTES.between(startTime, endTime) / 5;
+            
+            // 如果数据完整或接近完整（允许5%误差），跳过
+            if (existingTimestamps.size() >= expectedCount * 0.95) {
+                continue;
+            }
+            
+            // 找出缺失的时间段
+            Set<LocalDateTime> existingSet = new HashSet<>(existingTimestamps);
+            List<LocalDateTime> missingTimestamps = new ArrayList<>();
+            
+            LocalDateTime checkTime = alignToFiveMinutes(startTime);
+            while (!checkTime.isAfter(endTime)) {
+                if (!existingSet.contains(checkTime)) {
+                    missingTimestamps.add(checkTime);
+                }
+                checkTime = checkTime.plusMinutes(5);
+            }
+            
+            if (missingTimestamps.isEmpty()) {
+                continue;
+            }
+            
+            // 找出连续的缺失时间段
+            List<long[]> missingRanges = findMissingRanges(missingTimestamps);
+            
+            int repairedCount = 0;
+            List<String> repairedRanges = new ArrayList<>();
+            
+            for (long[] range : missingRanges) {
+                try {
+                    // 从币安API获取缺失的K线数据
+                    List<KlineData> klines = binanceApiService.getKlinesWithPagination(
+                            symbol, "5m", range[0], range[1], 500);
+                    
+                    if (!klines.isEmpty()) {
+                        // 保存到数据库
+                        List<CoinPrice> coinPrices = klines.stream()
+                                .filter(k -> k.getClosePrice() > 0)
+                                .map(k -> new CoinPrice(k.getSymbol(), k.getTimestamp(),
+                                        k.getOpenPrice(), k.getHighPrice(), k.getLowPrice(), k.getClosePrice()))
+                                .collect(Collectors.toList());
+                        
+                        if (!coinPrices.isEmpty()) {
+                            jdbcCoinPriceRepository.batchInsert(coinPrices);
+                            repairedCount += coinPrices.size();
+                            
+                            LocalDateTime rangeStart = LocalDateTime.ofInstant(
+                                    java.time.Instant.ofEpochMilli(range[0]), ZoneId.of("UTC"));
+                            LocalDateTime rangeEnd = LocalDateTime.ofInstant(
+                                    java.time.Instant.ofEpochMilli(range[1]), ZoneId.of("UTC"));
+                            repairedRanges.add(rangeStart + " ~ " + rangeEnd);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("修复 {} 数据失败: {}", symbol, e.getMessage());
+                }
+            }
+            
+            if (repairedCount > 0) {
+                Map<String, Object> symbolInfo = new HashMap<>();
+                symbolInfo.put("symbol", symbol);
+                symbolInfo.put("repairedCount", repairedCount);
+                symbolInfo.put("repairedRanges", repairedRanges);
+                repairedSymbols.add(symbolInfo);
+                
+                totalRepairedRecords += repairedCount;
+                log.info("修复币种 {}: {} 条数据, 时间段: {}", symbol, repairedCount, repairedRanges);
+            }
+            
+            if (checkedSymbols % 50 == 0) {
+                log.info("已检查 {}/{} 个币种...", checkedSymbols, activeSymbols.size());
+            }
+        }
+        
+        log.info("历史数据修复完成，共修复 {} 个币种，{} 条数据", repairedSymbols.size(), totalRepairedRecords);
+        
+        result.put("success", true);
+        result.put("checkedSymbols", activeSymbols.size());
+        result.put("repairedSymbolCount", repairedSymbols.size());
+        result.put("totalRepairedRecords", totalRepairedRecords);
+        result.put("timeRange", startTime + " ~ " + endTime);
+        result.put("repairedDetails", repairedSymbols);
+        
+        return result;
+    }
+    
+    /**
+     * 找出连续的缺失时间段，合并为时间范围
+     */
+    private List<long[]> findMissingRanges(List<LocalDateTime> missingTimestamps) {
+        List<long[]> ranges = new ArrayList<>();
+        if (missingTimestamps.isEmpty()) {
+            return ranges;
+        }
+        
+        // 排序
+        missingTimestamps.sort(LocalDateTime::compareTo);
+        
+        LocalDateTime rangeStart = missingTimestamps.get(0);
+        LocalDateTime rangeEnd = rangeStart;
+        
+        for (int i = 1; i < missingTimestamps.size(); i++) {
+            LocalDateTime current = missingTimestamps.get(i);
+            
+            // 如果当前时间点与上一个相差超过5分钟，说明是新的时间段
+            if (java.time.temporal.ChronoUnit.MINUTES.between(rangeEnd, current) > 5) {
+                // 保存当前时间段
+                ranges.add(new long[]{
+                        rangeStart.atZone(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+                        rangeEnd.atZone(ZoneId.of("UTC")).toInstant().toEpochMilli()
+                });
+                rangeStart = current;
+            }
+            rangeEnd = current;
+        }
+        
+        // 保存最后一个时间段
+        ranges.add(new long[]{
+                rangeStart.atZone(ZoneId.of("UTC")).toInstant().toEpochMilli(),
+                rangeEnd.atZone(ZoneId.of("UTC")).toInstant().toEpochMilli()
+        });
+        
+        return ranges;
     }
 
     /**
