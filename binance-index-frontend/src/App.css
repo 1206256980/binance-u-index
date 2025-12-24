@@ -327,6 +327,7 @@ body {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  flex-wrap: nowrap;
 }
 
 .time-base-selector .label {
@@ -1426,10 +1427,11 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .header-search-input {
-  width: 120px;
+  width: 100px;
   padding: 6px 10px;
   border: 1px solid var(--border-color);
   background: var(--bg-card);
