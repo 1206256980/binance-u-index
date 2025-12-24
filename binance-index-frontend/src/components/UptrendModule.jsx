@@ -76,6 +76,13 @@ function UptrendModule() {
 
     useEffect(() => {
         fetchData()
+
+        // 每1分钟自动刷新
+        const interval = setInterval(() => {
+            fetchData()
+        }, 60000)
+
+        return () => clearInterval(interval)
     }, [fetchData])
 
     // 处理保留比率输入（用户输入75表示75%，内部存储0.75）
