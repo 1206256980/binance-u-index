@@ -71,12 +71,14 @@ function UptrendModule() {
     const chartRef = useRef(null)
     const timeChartRef = useRef(null)
 
-    // 获取数据
-    const fetchData = useCallback(async () => {
-        setLoading(true)
-        setSelectedBucket(null)
-        setShowAllRanking(false)
-        setSelectedSymbol(null)
+    // 获取数据 (silent: 静默刷新，不显示loading，不重置选择状态)
+    const fetchData = useCallback(async (silent = false) => {
+        if (!silent) {
+            setLoading(true)
+            setSelectedBucket(null)
+            setShowAllRanking(false)
+            setSelectedSymbol(null)
+        }
         try {
             let url = `/api/index/uptrend-distribution?keepRatio=${keepRatio}&noNewHighCandles=${noNewHighCandles}&minUptrend=${minUptrend}`
             if (useCustomTime && startTime && endTime) {
@@ -96,15 +98,17 @@ function UptrendModule() {
         } catch (err) {
             console.error('获取单边涨幅数据失败:', err)
         }
-        setLoading(false)
+        if (!silent) {
+            setLoading(false)
+        }
     }, [timeBase, keepRatio, noNewHighCandles, minUptrend, useCustomTime, startTime, endTime])
 
     useEffect(() => {
         fetchData()
 
-        // 每1分钟自动刷新
+        // 每1分钟静默刷新
         const interval = setInterval(() => {
-            fetchData()
+            fetchData(true)  // 静默刷新
         }, 60000)
 
         return () => clearInterval(interval)
