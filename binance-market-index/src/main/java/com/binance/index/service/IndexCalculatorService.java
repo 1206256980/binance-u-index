@@ -903,20 +903,22 @@ public class IndexCalculatorService {
      * 修复所有币种的历史价格缺失数据
      * 检测每个币种在指定时间范围内的数据缺口，并从币安API回补
      * 
-     * @param days 检查最近多少天的数据，默认7天
+     * @param startTime 开始时间（可选，为空则使用 days 参数）
+     * @param endTime   结束时间（可选，为空则使用当前时间）
+     * @param days      检查最近多少天的数据，当 startTime 为空时使用
      * @return 修复结果详情
      */
     @org.springframework.transaction.annotation.Transactional
-    public Map<String, Object> repairMissingPriceData(int days) {
+    public Map<String, Object> repairMissingPriceData(LocalDateTime startTime, LocalDateTime endTime, int days) {
         Map<String, Object> result = new HashMap<>();
         List<Map<String, Object>> repairedSymbols = new ArrayList<>();
         
-        log.info("开始检测并修复最近 {} 天的历史价格缺失数据...", days);
-        
         // 计算时间范围
         LocalDateTime now = LocalDateTime.now(java.time.ZoneOffset.UTC);
-        LocalDateTime startTime = now.minusDays(days);
-        LocalDateTime endTime = alignToFiveMinutes(now).minusMinutes(5); // 最新闭合K线
+        LocalDateTime actualStartTime = startTime != null ? startTime : now.minusDays(days);
+        LocalDateTime actualEndTime = endTime != null ? endTime : alignToFiveMinutes(now).minusMinutes(5);
+        
+        log.info("开始检测并修复历史价格缺失数据: {} ~ {}", actualStartTime, actualEndTime);
         
         // 获取当前活跃的所有币种
         List<String> activeSymbols = binanceApiService.getAllUsdtSymbols();
@@ -935,7 +937,7 @@ public class IndexCalculatorService {
             checkedSymbols++;
             
             // 获取该币种在时间范围内已有的所有时间戳
-            List<LocalDateTime> existingTimestamps = coinPriceRepository.findAllDistinctTimestampsBetween(startTime, endTime)
+            List<LocalDateTime> existingTimestamps = coinPriceRepository.findAllDistinctTimestampsBetween(actualStartTime, actualEndTime)
                     .stream()
                     .filter(ts -> {
                         // 检查该时间点是否有这个币种的数据
@@ -944,19 +946,16 @@ public class IndexCalculatorService {
                     .collect(Collectors.toList());
             
             // 计算期望的时间点数量
-            long expectedCount = java.time.temporal.ChronoUnit.MINUTES.between(startTime, endTime) / 5;
+            long expectedCount = java.time.temporal.ChronoUnit.MINUTES.between(actualStartTime, actualEndTime) / 5;
             
-            // 如果数据完整或接近完整（允许5%误差），跳过
-            if (existingTimestamps.size() >= expectedCount * 0.95) {
-                continue;
-            }
+            
             
             // 找出缺失的时间段
             Set<LocalDateTime> existingSet = new HashSet<>(existingTimestamps);
             List<LocalDateTime> missingTimestamps = new ArrayList<>();
             
-            LocalDateTime checkTime = alignToFiveMinutes(startTime);
-            while (!checkTime.isAfter(endTime)) {
+            LocalDateTime checkTime = alignToFiveMinutes(actualStartTime);
+            while (!checkTime.isAfter(actualEndTime)) {
                 if (!existingSet.contains(checkTime)) {
                     missingTimestamps.add(checkTime);
                 }
@@ -1025,7 +1024,7 @@ public class IndexCalculatorService {
         result.put("checkedSymbols", activeSymbols.size());
         result.put("repairedSymbolCount", repairedSymbols.size());
         result.put("totalRepairedRecords", totalRepairedRecords);
-        result.put("timeRange", startTime + " ~ " + endTime);
+        result.put("timeRange", actualStartTime + " ~ " + actualEndTime);
         result.put("repairedDetails", repairedSymbols);
         
         return result;

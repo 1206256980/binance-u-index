@@ -503,24 +503,42 @@ public class IndexController {
      * 修复所有币种的历史价格缺失数据
      * 检测每个币种在指定时间范围内的数据缺口，并从币安API回补
      * 
-     * 示例: POST /api/index/repair?days=7
+     * 示例: 
+     * - POST /api/index/repair?days=7 （修复最近7天）
+     * - POST /api/index/repair?start=2024-12-20 00:00&end=2024-12-24 00:00 （指定时间范围）
      * 
-     * @param days 检查最近多少天的数据，默认7天
+     * @param days 检查最近多少天的数据，默认7天（当 start 为空时使用）
+     * @param start 开始时间（可选）
+     * @param end 结束时间（可选）
      */
     @PostMapping("/repair")
     public ResponseEntity<Map<String, Object>> repairMissingData(
-            @RequestParam(defaultValue = "7") int days) {
+            @RequestParam(defaultValue = "7") int days,
+            @RequestParam(required = false) String start,
+            @RequestParam(required = false) String end) {
         
         Map<String, Object> response = new HashMap<>();
 
-        if (days <= 0 || days > 30) {
+        // 验证 days 参数（仅当未指定 start 时使用）
+        if (start == null && (days <= 0 || days > 60)) {
             response.put("success", false);
-            response.put("message", "days 参数必须在 1-30 之间");
+            response.put("message", "days 参数必须在 1-60 之间");
             return ResponseEntity.badRequest().body(response);
         }
 
         try {
-            Map<String, Object> result = indexCalculatorService.repairMissingPriceData(days);
+            // 解析时间参数
+            java.time.LocalDateTime startTime = null;
+            java.time.LocalDateTime endTime = null;
+            
+            if (start != null && !start.isEmpty()) {
+                startTime = parseDateTime(start);
+            }
+            if (end != null && !end.isEmpty()) {
+                endTime = parseDateTime(end);
+            }
+            
+            Map<String, Object> result = indexCalculatorService.repairMissingPriceData(startTime, endTime, days);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             response.put("success", false);
