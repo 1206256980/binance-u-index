@@ -1554,42 +1554,46 @@ public class IndexCalculatorService {
             return null;
         }
         
-        log.info("找到 {} 个币种，开始分批查询处理...", allSymbols.size());
+        log.info("找到 {} 个币种，开始并行分批查询处理...", allSymbols.size());
         
-        // Step 2: 分批处理，每批 50 个币种
+        // Step 2: 并行分批处理，每批 50 个币种
         final int BATCH_SIZE = 50;
-        List<UptrendData.CoinUptrend> allWaves = new ArrayList<>();
         
+        // 创建批次列表
+        List<List<String>> batches = new ArrayList<>();
         for (int i = 0; i < allSymbols.size(); i += BATCH_SIZE) {
             int endIndex = Math.min(i + BATCH_SIZE, allSymbols.size());
-            List<String> batchSymbols = allSymbols.subList(i, endIndex);
-            
-            // 查询这批币种的数据
-            List<CoinPrice> batchPrices = coinPriceRepository.findBySymbolsInRange(batchSymbols, alignedStart, alignedEnd);
-            
-            // 按币种分组
-            Map<String, List<CoinPrice>> pricesBySymbol = batchPrices.stream()
-                    .collect(java.util.stream.Collectors.groupingBy(CoinPrice::getSymbol));
-            
-            // 并行处理这批数据
-            List<UptrendData.CoinUptrend> batchWaves = pricesBySymbol.entrySet().parallelStream()
-                    .flatMap(entry -> calculateSymbolAllWavesFromData(entry.getKey(), entry.getValue(), keepRatio,
-                            noNewHighCandles, minUptrend).stream())
-                    .collect(java.util.stream.Collectors.toList());
-            
-            allWaves.addAll(batchWaves);
-            
-            // 清空引用，帮助 GC 回收
-            batchPrices = null;
-            pricesBySymbol = null;
-            
-            if ((i / BATCH_SIZE + 1) % 2 == 0) {
-                log.debug("已处理 {}/{} 个币种...", endIndex, allSymbols.size());
-            }
+            batches.add(new ArrayList<>(allSymbols.subList(i, endIndex)));
         }
         
+        log.info("分成 {} 个批次，开始并行处理...", batches.size());
+        
+        // 使用 CompletableFuture 并行处理所有批次
+        List<CompletableFuture<List<UptrendData.CoinUptrend>>> futures = batches.stream()
+                .map(batchSymbols -> CompletableFuture.supplyAsync(() -> {
+                    // 查询这批币种的数据
+                    List<CoinPrice> batchPrices = coinPriceRepository.findBySymbolsInRange(batchSymbols, alignedStart, alignedEnd);
+                    
+                    // 按币种分组
+                    Map<String, List<CoinPrice>> pricesBySymbol = batchPrices.stream()
+                            .collect(java.util.stream.Collectors.groupingBy(CoinPrice::getSymbol));
+                    
+                    // 处理这批数据
+                    return pricesBySymbol.entrySet().stream()
+                            .flatMap(entry -> calculateSymbolAllWavesFromData(entry.getKey(), entry.getValue(), keepRatio,
+                                    noNewHighCandles, minUptrend).stream())
+                            .collect(java.util.stream.Collectors.toList());
+                }, executorService))
+                .collect(java.util.stream.Collectors.toList());
+        
+        // 等待所有批次完成并汇总结果
+        List<UptrendData.CoinUptrend> allWaves = futures.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(java.util.stream.Collectors.toList());
+        
         long queryTime = System.currentTimeMillis() - queryStart;
-        log.info("分批查询处理完成，耗时 {}ms，共 {} 个币种，{} 个波段", queryTime, allSymbols.size(), allWaves.size());
+        log.info("并行分批查询完成，耗时 {}ms，共 {} 个币种，{} 个波段", queryTime, allSymbols.size(), allWaves.size());
 
         // 统计进行中的波段数
         int ongoingCount = (int) allWaves.stream().filter(UptrendData.CoinUptrend::isOngoing).count();
