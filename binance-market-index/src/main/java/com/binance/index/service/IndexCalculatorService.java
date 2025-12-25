@@ -2146,7 +2146,10 @@ public class IndexCalculatorService {
     }
 
     /**
-     * 执行单个阶段的并发回补
+     * 执行单个阶段的并发回补（方案B：每次 API 调用后立即保存）
+     * 
+     * 关键改进：不使用 getKlinesWithPagination，而是自己控制每次 API 调用后立即保存
+     * 这样 DB 操作的耗时成为自然的 API 间隔，避免被限流
      * 
      * @param startTime 开始时间
      * @param endTime 结束时间
@@ -2175,6 +2178,8 @@ public class IndexCalculatorService {
         AtomicInteger completed = new AtomicInteger(0);
         AtomicInteger failed = new AtomicInteger(0);
         AtomicInteger skipped = new AtomicInteger(0);
+        AtomicInteger totalApiCalls = new AtomicInteger(0);
+        AtomicInteger totalSaved = new AtomicInteger(0);
 
         // 用于收集新币的基准价格（线程安全）
         Map<String, Double> collectedBasePrices = new java.util.concurrent.ConcurrentHashMap<>();
@@ -2185,48 +2190,66 @@ public class IndexCalculatorService {
                 .map(symbol -> CompletableFuture.runAsync(() -> {
                     try {
                         semaphore.acquire();
-
-                        // 获取 K 线（limit=99，权重 1）
-                        List<KlineData> klines = binanceApiService.getKlinesWithPagination(
-                                symbol, "5m", startMs, endMs, 99);
-
-                        if (klines.isEmpty()) {
-                            skipped.incrementAndGet();
-                            return;
-                        }
-
-                        // 收集基准价格（使用最早的 openPrice）
-                        if (collectBasePrices && !klines.isEmpty()) {
-                            KlineData firstKline = klines.get(0);
-                            collectedBasePrices.putIfAbsent(symbol, firstKline.getOpenPrice());
-                        }
-
-                        // 过滤已存在的时间点，并构建 CoinPrice 列表
-                        List<CoinPrice> pricesToSave = new ArrayList<>();
-                        for (KlineData kline : klines) {
-                            LocalDateTime timestamp = kline.getTimestamp();
-                            // 跳过已存在的时间点
-                            if (existingTimestamps.contains(timestamp)) {
-                                continue;
+                        
+                        // 分批获取并立即保存（方案B核心逻辑）
+                        long currentStart = startMs;
+                        boolean isFirstBatch = true;
+                        
+                        while (currentStart < endMs) {
+                            // 检查是否被限流
+                            if (binanceApiService.isRateLimited()) {
+                                log.warn("检测到限流，停止回补 {}", symbol);
+                                break;
                             }
-                            if (kline.getClosePrice() > 0) {
-                                pricesToSave.add(new CoinPrice(
-                                        kline.getSymbol(), timestamp,
-                                        kline.getOpenPrice(), kline.getHighPrice(),
-                                        kline.getLowPrice(), kline.getClosePrice()));
+                            
+                            // 获取一批 K 线（limit=99，权重1）
+                            List<KlineData> batch = binanceApiService.getKlines(
+                                    symbol, "5m", currentStart, endMs, 99);
+                            
+                            totalApiCalls.incrementAndGet();
+                            
+                            if (batch.isEmpty()) {
+                                break;
                             }
-                        }
-
-                        // 立即保存到数据库（这个操作的耗时就是自然间隔）
-                        if (!pricesToSave.isEmpty()) {
-                            jdbcCoinPriceRepository.batchInsert(pricesToSave);
+                            
+                            // 收集基准价格（使用第一批的第一条）
+                            if (collectBasePrices && isFirstBatch && !batch.isEmpty()) {
+                                collectedBasePrices.putIfAbsent(symbol, batch.get(0).getOpenPrice());
+                                isFirstBatch = false;
+                            }
+                            
+                            // 立即过滤并保存这一批（方案B：每次API调用后立即保存）
+                            List<CoinPrice> pricesToSave = new ArrayList<>();
+                            for (KlineData kline : batch) {
+                                LocalDateTime timestamp = kline.getTimestamp();
+                                if (!existingTimestamps.contains(timestamp) && kline.getClosePrice() > 0) {
+                                    pricesToSave.add(new CoinPrice(
+                                            kline.getSymbol(), timestamp,
+                                            kline.getOpenPrice(), kline.getHighPrice(),
+                                            kline.getLowPrice(), kline.getClosePrice()));
+                                }
+                            }
+                            
+                            // 立即保存（DB操作耗时成为自然的API间隔）
+                            if (!pricesToSave.isEmpty()) {
+                                jdbcCoinPriceRepository.batchInsert(pricesToSave);
+                                totalSaved.addAndGet(pricesToSave.size());
+                            }
+                            
+                            // 计算下一批的起始时间
+                            KlineData lastKline = batch.get(batch.size() - 1);
+                            long lastTime = lastKline.getTimestamp()
+                                    .atZone(ZoneId.of("UTC"))
+                                    .toInstant()
+                                    .toEpochMilli();
+                            currentStart = lastTime + 300000; // +5分钟
                         }
 
                         int done = completed.incrementAndGet();
                         if (done % 50 == 0 || done == symbols.size()) {
                             long elapsed = System.currentTimeMillis() - phaseStartTime;
-                            log.info("回补进度: {}/{} (跳过:{}, 失败:{}) 耗时:{}s", 
-                                    done, symbols.size(), skipped.get(), failed.get(), elapsed / 1000);
+                            log.info("回补进度: {}/{} (API调用:{}, 已保存:{}条) 耗时:{}s", 
+                                    done, symbols.size(), totalApiCalls.get(), totalSaved.get(), elapsed / 1000);
                         }
 
                     } catch (Exception e) {
@@ -2252,8 +2275,8 @@ public class IndexCalculatorService {
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
         long phaseElapsed = System.currentTimeMillis() - phaseStartTime;
-        log.info("本阶段完成: 成功={}, 跳过={}, 失败={}, 耗时={}s",
-                completed.get(), skipped.get(), failed.get(), phaseElapsed / 1000);
+        log.info("本阶段完成: 成功={}, 跳过={}, 失败={}, API调用={}, 保存={}条, 耗时={}s",
+                completed.get(), skipped.get(), failed.get(), totalApiCalls.get(), totalSaved.get(), phaseElapsed / 1000);
 
         return collectedBasePrices;
     }
