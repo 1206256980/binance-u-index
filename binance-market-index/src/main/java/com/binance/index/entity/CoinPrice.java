@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "coin_price", indexes = {
         @Index(name = "idx_coin_price_symbol_ts", columnList = "symbol, timestamp"),
-        @Index(name = "idx_coin_price_timestamp", columnList = "timestamp")
+        @Index(name = "idx_coin_price_timestamp", columnList = "timestamp"),
+        // 用于时间范围查询的复合索引（timestamp在前，优化范围扫描）
+        @Index(name = "idx_coin_price_ts_symbol", columnList = "timestamp, symbol")
 })
 public class CoinPrice {
 
