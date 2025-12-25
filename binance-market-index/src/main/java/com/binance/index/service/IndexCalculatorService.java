@@ -1130,9 +1130,7 @@ public class IndexCalculatorService {
 
         // 调试：打印关键时间点
         LocalDateTime actualBaseTime = basePriceList.get(0).getTimestamp();
-        log.info("[时间调试] 系统时间={}, 对齐时间={}, 最新数据时间={}, 期望基准时间={}, 实际基准时间={}",
-                LocalDateTime.now(), alignedNow, latestTime, baseTime, actualBaseTime);
-
+        
         // 转换为Map便于查找
         // 当前价格使用收盘价
         Map<String, Double> currentPriceMap = latestPrices.stream()
@@ -1330,9 +1328,6 @@ public class IndexCalculatorService {
             return null;
         }
         LocalDateTime actualEndTime = endPriceList.get(0).getTimestamp();
-
-        log.info("[时间调试] 请求范围: {} -> {}, 对齐后: {} -> {}, 实际数据范围: {} -> {}",
-                startTime, endTime, alignedStart, alignedEnd, actualStartTime, actualEndTime);
 
         // 转换为Map便于查找
         // 基准价格使用开盘价
