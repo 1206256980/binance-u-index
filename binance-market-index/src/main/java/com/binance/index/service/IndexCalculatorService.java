@@ -1913,18 +1913,18 @@ public class IndexCalculatorService {
 
                     // 回溯找到从波段峰值到当前的最低点作为新波段起点
                     int peakIndex = prices.indexOf(price); // 当前索引
-                    double lowestPrice = closePrice;
+                    double lowestPrice = lowPrice; // 使用当前K线的低价作为初始值
                     LocalDateTime lowestTime = timestamp;
 
-                    // 从峰值时间点往后找最低点
+                    // 从峰值时间点往后找最低点（使用低价而非收盘价）
                     for (int j = peakIndex; j >= 0; j--) {
                         CoinPrice p = prices.get(j);
                         if (p.getTimestamp().isBefore(wavePeakTime) || p.getTimestamp().equals(wavePeakTime)) {
                             break;
                         }
-                        double pClose = p.getPrice();
-                        if (pClose < lowestPrice) {
-                            lowestPrice = pClose;
+                        double pLow = p.getLowPrice() != null ? p.getLowPrice() : p.getPrice();
+                        if (pLow < lowestPrice) {
+                            lowestPrice = pLow;
                             lowestTime = p.getTimestamp();
                         }
                     }
@@ -1932,6 +1932,7 @@ public class IndexCalculatorService {
                     // 以找到的最低点开始新波段
                     waveStartPrice = lowestPrice;
                     waveStartTime = lowestTime;
+                    waveLowestLow = lowestPrice; // 重置历史最低价！
                     wavePeakPrice = highPrice;
                     wavePeakTime = timestamp;
                     candlesSinceNewHigh = 0;
@@ -2072,18 +2073,18 @@ public class IndexCalculatorService {
                     // 回溯找到从波段峰值到当前的最低点作为新波段起点
                     // 这样可以更准确地捕捉真正的涨势起点
                     int peakIndex = prices.indexOf(price); // 当前索引
-                    double lowestPrice = closePrice;
+                    double lowestPrice = lowPrice; // 使用当前K线的低价作为初始值
                     LocalDateTime lowestTime = timestamp;
 
-                    // 从峰值时间点往后找最低点（最多找当前位置）
+                    // 从峰值时间点往后找最低点（使用低价而非收盘价）
                     for (int j = peakIndex; j >= 0; j--) {
                         CoinPrice p = prices.get(j);
                         if (p.getTimestamp().isBefore(wavePeakTime) || p.getTimestamp().equals(wavePeakTime)) {
                             break; // 不要回溯到峰值之前
                         }
-                        double pClose = p.getPrice();
-                        if (pClose < lowestPrice) {
-                            lowestPrice = pClose;
+                        double pLow = p.getLowPrice() != null ? p.getLowPrice() : p.getPrice();
+                        if (pLow < lowestPrice) {
+                            lowestPrice = pLow;
                             lowestTime = p.getTimestamp();
                         }
                     }
@@ -2091,6 +2092,7 @@ public class IndexCalculatorService {
                     // 以找到的最低点开始新波段
                     waveStartPrice = lowestPrice;
                     waveStartTime = lowestTime;
+                    waveLowestLow = lowestPrice; // 重置历史最低价！
                     wavePeakPrice = highPrice; // 当前K线的高点
                     wavePeakTime = timestamp;
                     candlesSinceNewHigh = 0;
