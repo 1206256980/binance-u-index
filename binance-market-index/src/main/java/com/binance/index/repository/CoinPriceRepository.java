@@ -134,6 +134,17 @@ public interface CoinPriceRepository extends JpaRepository<CoinPrice, Long> {
                         @Param("endTime") LocalDateTime endTime);
 
         /**
+         * 按币种列表批量查询时间范围内的K线数据（用于分批处理优化）
+         */
+        @Query("SELECT cp FROM CoinPrice cp " +
+                        "WHERE cp.symbol IN :symbols " +
+                        "AND cp.timestamp >= :startTime AND cp.timestamp <= :endTime " +
+                        "ORDER BY cp.symbol ASC, cp.timestamp ASC")
+        List<CoinPrice> findBySymbolsInRange(@Param("symbols") List<String> symbols,
+                        @Param("startTime") LocalDateTime startTime,
+                        @Param("endTime") LocalDateTime endTime);
+
+        /**
          * 按币种删除所有历史价格（用于清理下架币种）
          */
         void deleteBySymbol(String symbol);
