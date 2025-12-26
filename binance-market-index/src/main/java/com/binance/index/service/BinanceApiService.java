@@ -108,7 +108,7 @@ public class BinanceApiService {
         if (isRateLimited()) {
             return symbols;
         }
-
+//0.6894->0.9242
         try {
             String url = baseUrl + "/fapi/v1/exchangeInfo";
             Request request = new Request.Builder().url(url).get().build();

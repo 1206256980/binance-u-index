@@ -175,11 +175,11 @@ function App() {
                 )}
             </div>
 
-            {/* 涨幅分布模块 */}
-            <DistributionModule externalTimeRange={selectedTimeRange} />
-
             {/* 单边上行涨幅模块 */}
             <UptrendModule />
+
+            {/* 涨幅分布模块 */}
+            <DistributionModule externalTimeRange={selectedTimeRange} />
 
             <footer className="footer">
                 <p>数据来源: 币安合约API | 每5分钟采集一次 | {stats?.coinCount || 0} 个币种参与计算</p>
