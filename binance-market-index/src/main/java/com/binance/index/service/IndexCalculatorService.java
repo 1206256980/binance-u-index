@@ -1911,7 +1911,8 @@ public class IndexCalculatorService {
                 // 开始新波段
                 waveStartPrice = startPriceCandidate;
                 waveStartTime = timestamp;
-                waveLowestLow = lowPrice; // 总是使用低价做破位判断
+                // waveLowestLow 根据模式选择：lowHigh 用低价，其他用开盘价
+                waveLowestLow = "lowHigh".equals(priceMode) ? lowPrice : openPrice;
                 wavePeakPrice = peakPriceCandidate;
                 wavePeakTime = timestamp;
                 candlesSinceNewHigh = 0;
@@ -1975,18 +1976,25 @@ public class IndexCalculatorService {
 
                     // 回溯找到从波段峰值到当前的最低点作为新波段起点
                     int peakIndex = prices.indexOf(price); // 当前索引
-                    double lowestPrice = lowPrice; // 使用当前K线的低价作为初始值
+                    // 根据模式选择用低价还是开盘价找最低点
+                    double lowestPrice = startPriceCandidate; // 使用当前K线的起点价作为初始值
                     LocalDateTime lowestTime = timestamp;
 
-                    // 从峰值时间点往后找最低点（使用低价而非收盘价）
+                    // 从峰值时间点往后找最低点
                     for (int j = peakIndex; j >= 0; j--) {
                         CoinPrice p = prices.get(j);
                         if (p.getTimestamp().isBefore(wavePeakTime) || p.getTimestamp().equals(wavePeakTime)) {
                             break;
                         }
-                        double pLow = p.getLowPrice() != null ? p.getLowPrice() : p.getPrice();
-                        if (pLow < lowestPrice) {
-                            lowestPrice = pLow;
+                        // 根据 priceMode 选择用低价还是开盘价
+                        double pStart;
+                        if ("lowHigh".equals(priceMode)) {
+                            pStart = p.getLowPrice() != null ? p.getLowPrice() : p.getPrice();
+                        } else {
+                            pStart = p.getOpenPrice() != null ? p.getOpenPrice() : p.getPrice();
+                        }
+                        if (pStart < lowestPrice) {
+                            lowestPrice = pStart;
                             lowestTime = p.getTimestamp();
                         }
                     }
