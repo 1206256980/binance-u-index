@@ -1980,10 +1980,10 @@ public class IndexCalculatorService {
                     double lowestPrice = startPriceCandidate; // 使用当前K线的起点价作为初始值
                     LocalDateTime lowestTime = timestamp;
 
-                    // 从峰值时间点往后找最低点
+                    // 从峰值时间点往后找最低点（包括峰值K线，因为同根K线的低价可能更低）
                     for (int j = peakIndex; j >= 0; j--) {
                         CoinPrice p = prices.get(j);
-                        if (p.getTimestamp().isBefore(wavePeakTime) || p.getTimestamp().equals(wavePeakTime)) {
+                        if (p.getTimestamp().isBefore(wavePeakTime)) {
                             break;
                         }
                         // 根据 priceMode 选择用低价还是开盘价
