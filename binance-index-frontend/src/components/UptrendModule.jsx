@@ -1091,6 +1091,7 @@ function UptrendModule() {
                     style={{ marginLeft: '4px' }}
                 >
                     <option value="lowHigh">低/高价</option>
+                    <option value="openHigh">开/高价</option>
                     <option value="openClose">开/收价</option>
                 </select>
 

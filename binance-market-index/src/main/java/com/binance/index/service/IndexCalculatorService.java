@@ -1870,9 +1870,6 @@ public class IndexCalculatorService {
             return Collections.emptyList();
         }
 
-        // 判断价格模式
-        boolean useLowHigh = !"openClose".equals(priceMode);
-
         List<UptrendData.CoinUptrend> waves = new ArrayList<>();
 
         // 波段跟踪变量
@@ -1894,8 +1891,21 @@ public class IndexCalculatorService {
             LocalDateTime timestamp = price.getTimestamp();
 
             // 根据模式选择起点价和顶点价
-            double startPriceCandidate = useLowHigh ? lowPrice : openPrice;
-            double peakPriceCandidate = useLowHigh ? highPrice : closePrice;
+            // lowHigh: 低/高价 (马丁做空风险)
+            // openClose: 开/收价 (传统K线分析)
+            // openHigh: 开/高价 (开盘起点，最高价顶点)
+            double startPriceCandidate;
+            double peakPriceCandidate;
+            if ("openClose".equals(priceMode)) {
+                startPriceCandidate = openPrice;
+                peakPriceCandidate = closePrice;
+            } else if ("openHigh".equals(priceMode)) {
+                startPriceCandidate = openPrice;
+                peakPriceCandidate = highPrice;
+            } else { // lowHigh (默认)
+                startPriceCandidate = lowPrice;
+                peakPriceCandidate = highPrice;
+            }
 
             if (!inWave) {
                 // 开始新波段
@@ -1918,13 +1928,14 @@ public class IndexCalculatorService {
                     candlesSinceNewHigh++; // 未创新高，计数+1
                 }
 
-                // 检查是否创新低（总是使用低价判断是否真正破位）
-                // 只有当K线低价跌破波段历史最低价时，才重置波段起点
-                if (lowPrice < waveLowestLow) {
-                    // 真正破位，重置波段起点
+                // 检查是否创新低（破位判断根据 priceMode 选择）
+                // lowHigh 模式用低价判断；openHigh/openClose 模式用开盘价判断（避免被下影线"欺骗"）
+                double breakdownPrice = "lowHigh".equals(priceMode) ? lowPrice : openPrice;
+                if (breakdownPrice < waveLowestLow) {
+                    // 破位，重置波段起点
                     waveStartPrice = startPriceCandidate;
                     waveStartTime = timestamp;
-                    waveLowestLow = lowPrice;
+                    waveLowestLow = breakdownPrice; // 更新历史最低价
                     wavePeakPrice = peakPriceCandidate;
                     wavePeakTime = timestamp;
                     candlesSinceNewHigh = 0;
@@ -1984,7 +1995,7 @@ public class IndexCalculatorService {
                     waveStartPrice = lowestPrice;
                     waveStartTime = lowestTime;
                     waveLowestLow = lowestPrice; // 重置历史最低价！
-                    wavePeakPrice = highPrice;
+                    wavePeakPrice = peakPriceCandidate; // 根据 priceMode 使用正确的顶点价
                     wavePeakTime = timestamp;
                     candlesSinceNewHigh = 0;
                 }
